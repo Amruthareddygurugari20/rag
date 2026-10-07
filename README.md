@@ -14,9 +14,10 @@ sentence:
 
 > *Differences smaller than X points are not interpretable with this judge at N = Y.*
 
-> **Status: stage 1 of 7.** Ingestion and retrieval work: configurable chunking, local
-> embeddings, pgvector dense search, BM25 in SQL, and hybrid fusion. Generation, variants,
-> judging, adjudication, metrics and the UI arrive stage by stage (see [Roadmap](#roadmap)).
+> **Status: stage 2 of 7 (in review).** Retrieval works (configurable chunking, local
+> embeddings, pgvector, BM25 in SQL, fusion), and so does grounded generation with
+> citations via Ollama or Azure OpenAI. Variants, judging, adjudication, metrics and the UI
+> arrive stage by stage (see [Roadmap](#roadmap)).
 > Every design choice is explained in [DECISIONS.md](DECISIONS.md). Concepts are explained
 > in [docs/learn/](docs/learn/).
 
@@ -42,6 +43,27 @@ uv run python scripts/show_similarities.py                       # raw embedding
 `make test` runs the test suite. Tests that need Postgres or the model skip if those are
 unavailable, unless `JUDGE_CHECK_REQUIRE_DB=1` / `JUDGE_CHECK_REQUIRE_MODEL=1` are set, as
 they are in CI.
+
+## Grounded generation (stage 2)
+
+```bash
+ollama pull qwen2.5:7b                     # default generator (D-032: must be plausible)
+uv run judge-check generate --corpus hotpotqa_demo --limit 20 -v
+uv run judge-check prompts                 # list versioned prompts and their hashes
+```
+
+Each answer is stored with:
+- the exact model version (Ollama tag + content digest, or Azure dated model);
+- temperature, seed and max_tokens;
+- the prompt's hash, the retrieved chunks, and the mapped citations.
+
+Malformed output is stored as a parse failure with its reason, never repaired. Generated
+answers are **not labels**: they enter the evaluation set only through human adjudication
+(stage 5). The summary's "reference in answer" and "cites gold" lines are heuristics, and a
+test keeps them out of all scoring code. For Azure OpenAI, set
+`JUDGE_CHECK_AZURE_OPENAI_ENDPOINT` and `JUDGE_CHECK_AZURE_OPENAI_API_KEY`, then pass
+`--provider azure_openai --model <deployment>`. Concepts are in
+[docs/learn/02-generation.md](docs/learn/02-generation.md).
 
 ## Bring your own eval set
 
@@ -127,7 +149,7 @@ CITATION.cff         how to cite judge-check
 
 - [x] 0. Scaffold, Compose, decision log
 - [x] 1. Ingestion and retrieval (configurable chunking, local embeddings, pgvector, BM25, hybrid)
-- [ ] 2. Grounded answer generation with citations (Ollama)
+- [x] 2. Grounded answer generation with citations (Ollama, Azure OpenAI optional), in review
 - [ ] 3. Variant generator: nine types, deterministic mutations first
 - [ ] 4. Judge harness: pluggable judges, fixed-prompt and prompt-variation arms
 - [ ] 5. Human adjudication queue
