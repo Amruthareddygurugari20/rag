@@ -14,8 +14,6 @@ Row order is preserved. Output is deterministic (sorted keys, fixed separators).
 import json
 import sys
 
-import pyarrow.parquet as pq
-
 
 def convert_row(row: dict) -> dict:
     sf, ctx = row["supporting_facts"], row["context"]
@@ -31,6 +29,8 @@ def convert_row(row: dict) -> dict:
 
 
 def main() -> None:
+    import pyarrow.parquet as pq  # only needed here; keeps convert_row testable without it
+
     src, dst = sys.argv[1], sys.argv[2]
     rows = pq.read_table(src).to_pylist()
     with open(dst, "w", encoding="utf-8") as f:

@@ -1,6 +1,7 @@
 """The demo subset is ground truth, so its builder is tested like the mutators will be."""
 
 import json
+from collections import Counter
 
 import pytest
 
@@ -114,3 +115,28 @@ def test_build_is_deterministic_and_order_independent() -> None:
 def test_too_few_eligible_raises() -> None:
     with pytest.raises(ValueError, match="only 1 eligible"):
         hp.build_subset([example("q1")], n=2)
+
+
+def test_seeded_permutation_is_a_reproducible_permutation() -> None:
+    items = list(range(50))
+    a = hp.seeded_permutation(items, seed=1)
+    assert sorted(a) == items
+    assert a == hp.seeded_permutation(items, seed=1)
+    assert a != hp.seeded_permutation(items, seed=2)
+    assert items == list(range(50))  # input not mutated
+
+
+def test_seeded_permutation_is_uniform_over_first_position() -> None:
+    # Over many seeds, each of 4 items should come first ~25% of the time.
+    counts = Counter(hp.seeded_permutation(["a", "b", "c", "d"], seed=s)[0] for s in range(8000))
+    assert all(0.22 < c / 8000 < 0.28 for c in counts.values()), counts
+
+
+def test_sample_depends_on_seed_and_records_it() -> None:
+    exs = [example(f"q{i:02d}") for i in range(40)]
+    _, q1, stats = hp.build_subset(exs, n=10, seed=1)
+    _, q2, _ = hp.build_subset(exs, n=10, seed=2)
+    assert {q["id"] for q in q1} != {q["id"] for q in q2}
+    assert stats["sampling"]["seed"] == 1
+    assert stats["eligible_population"] == 40
+    assert stats["eligible_by_type"] == {"bridge": 40}

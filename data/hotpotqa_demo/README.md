@@ -20,22 +20,46 @@ Because of the ShareAlike term, **the files in this directory are distributed un
 4.0**, whatever licence the rest of the repository uses. If you redistribute or adapt them,
 keep this attribution and licence.
 
-### Source file
+### Source file, and what was and wasn't verified
 
 The original distribution is `hotpot_dev_distractor_v1.json` from
 `http://curtis.ml.cmu.edu/datasets/hotpot/`. On 2026-10-07 that host did not accept
-connections, neither from our CI runners nor from the development environment, so the
-subset is built from the HotpotQA dataset on Hugging Face (`hotpotqa/hotpot_qa`, config
-`distractor`, split `validation`). It is pinned to a repository commit, and the parquet
-file's SHA-256 is recorded in `MANIFEST.json`.
-`backend/scripts/hf_hotpotqa_to_json.py` converts it back to the original JSON layout (a
-field-for-field mapping, documented in the script), and the builder runs on that. The same
-licence and attribution apply.
+connections, neither from GitHub's CI runners (four connection timeouts) nor from the
+development environment. So the subset is built from the **Hugging Face copy**:
+`hotpotqa/hotpot_qa`, config `distractor`, split `validation`, at the repository commit
+recorded in `MANIFEST.json`. `backend/scripts/hf_hotpotqa_to_json.py` converts that parquet
+back to the original JSON layout, a field-for-field mapping documented and unit-tested in
+the repo. The builder runs on the converted file.
+
+**Verified:**
+- The parquet file we used is pinned: its SHA-256 (`source_sha256`) and the Hugging Face
+  commit (`source_revision`) are in `MANIFEST.json`. Anyone can fetch the identical file.
+- It has 7,405 rows, which matches the dev-set size reported by the HotpotQA authors.
+  **That is a count match, not a content match.**
+- Every row has the expected fields and types, and the filter outcomes look like an intact
+  dataset: 1 unresolvable supporting fact, 73 answers not found in the gold sentences. That
+  is evidence *against* gross corruption, not proof of fidelity.
+
+**Not verified:**
+- That the Hugging Face file's content is identical to the official
+  `hotpot_dev_distractor_v1.json`. We have never downloaded the official file, so we don't
+  know its checksum, and the checksum in `MANIFEST.json` is the *mirror's*.
+- That the Hugging Face conversion preserved text exactly (whitespace, Unicode
+  normalisation, sentence boundaries, row order).
+
+**How to close the gap** when the original host is reachable: run the builder directly on
+the official JSON with the same seed (`--seed`, see `MANIFEST.json`) and compare the outputs
+to these files. Byte-identical `corpus.jsonl` and `questions.jsonl` would show the subset
+is unaffected by the mirror. Comparing the whole converted JSON with the official file
+would verify the mirror itself.
+
+Licence and attribution are the same either way: the Hugging Face copy is the HotpotQA
+dataset, redistributed under the same CC BY-SA 4.0 licence.
 
 ### Changes made to the original
 
-- Selected 200 of the 7,405 dev questions using the deterministic filters and seeded order
-  described below.
+- Selected 200 of the 7,405 dev questions: deterministic filters, then a seeded simple
+  random sample (described below).
 - Joined each paragraph's sentence list into a single string, inserting a space only between
   sentences that had no whitespace between them, and recorded each sentence's character
   span.
@@ -74,9 +98,27 @@ filter are in `MANIFEST.json` → `stats.rejected`.
 5. **`title_text_conflict`**: two paragraphs with the same title but different text, either
    inside one question or across selected questions. The pooled corpus is keyed by title.
 
-The eligible questions are ordered by `sha256("judge-check-hotpotqa-v1:" + question_id)` and
-taken from the top. The order of the source file doesn't matter, and rebuilding gives
-identical bytes.
+**Sampling.** The 200 are a **simple random sample without replacement** from *all*
+questions that pass filters 1-4 (the "eligible population", whose size is in
+`MANIFEST.json` → `stats.eligible_population`). The procedure:
+
+1. Sort the eligible questions by id, so the source file's row order can't matter.
+2. Permute them with a seeded Fisher-Yates shuffle driven by
+   `random.Random(seed).random()`. Python guarantees that sequence for a given seed across
+   versions; it does not guarantee `random.shuffle` or `random.sample`.
+3. Take questions in permuted order until 200 are selected. A question whose paragraphs
+   conflict with an already-selected one is skipped (filter 5).
+
+The seed is `MANIFEST.json` → `sample_seed` (also `stats.sampling.seed`). The first n of a
+uniformly random permutation is a simple random sample. The only departure is the
+conflict skip, and how many times it fired is in `stats.rejected`.
+
+**Representativeness.** `stats.eligible_by_type` (the population) sits next to
+`stats.selected_by_type` (the sample), so the bridge/comparison split of the 200 can be
+compared with the population it was drawn from. The sample represents the *eligible*
+population, not HotpotQA dev as a whole: the filters remove all yes/no questions, which
+are mostly comparison questions. Retrieval and judge numbers on this corpus should be
+reported as being on "HotpotQA dev, filtered as described, n = 200".
 
 ## Known label noise in HotpotQA
 

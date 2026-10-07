@@ -1,9 +1,10 @@
-"""Build the HotpotQA demo subset from the official dev (distractor) file.
+"""Build the HotpotQA demo subset from the dev (distractor) set, in its original JSON layout.
 
 This module uses only the standard library so it can run as a plain script on the raw,
 untrusted download (``python -I hotpotqa.py ...``) without installing anything.
 
-It is fully deterministic: the same source file always yields byte-identical output. No
+It is fully deterministic: the same source file and seed always yield byte-identical output
+(the sample is seeded, see `seeded_permutation`). No
 model is involved anywhere, because the subset is ground truth (DECISIONS.md D-000, D-013).
 
 Output (the generic judge-check JSONL format, see judge_check.ingest.formats):
@@ -17,6 +18,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import random
 import re
 import string
 import sys
@@ -26,7 +28,8 @@ from pathlib import Path
 # Original distribution. Unreachable when the subset was built (2026-10-07), so the build uses
 # the Hugging Face copy, converted back to this layout (D-013). Provenance goes into MANIFEST.
 ORIGINAL_URL = "http://curtis.ml.cmu.edu/datasets/hotpot/hotpot_dev_distractor_v1.json"
-SEED = "judge-check-hotpotqa-v1"
+# Seed for the random sample. Recorded in MANIFEST.json. Changing it draws a different sample.
+SEED = 20261007
 N_QUESTIONS = 200
 
 # Rejection reasons, in the order they are checked. Each source question is counted under
@@ -97,11 +100,25 @@ def check_example(ex: dict) -> tuple[str | None, dict]:
     return None, paragraphs
 
 
-def sample_key(qid: str) -> str:
-    return hashlib.sha256(f"{SEED}:{qid}".encode()).hexdigest()
+def seeded_permutation(items: list, seed: int) -> list:
+    """A uniformly random permutation, reproducible across Python versions.
+
+    Fisher-Yates driven only by ``random.Random(seed).random()``. Python guarantees that
+    sequence for a given seed across versions; it does *not* guarantee ``shuffle`` or
+    ``sample``, whose internals have changed before. The first n items of a uniformly random
+    permutation are a simple random sample of size n, without replacement.
+    """
+    rng = random.Random(seed)
+    out = list(items)
+    for i in range(len(out) - 1, 0, -1):
+        j = int(rng.random() * (i + 1))
+        out[i], out[j] = out[j], out[i]
+    return out
 
 
-def build_subset(examples: list[dict], n: int = N_QUESTIONS) -> tuple[list, list, dict]:
+def build_subset(
+    examples: list[dict], n: int = N_QUESTIONS, seed: int = SEED
+) -> tuple[list, list, dict]:
     rejected: Counter[str] = Counter()
     eligible = []
     for ex in examples:
@@ -111,8 +128,13 @@ def build_subset(examples: list[dict], n: int = N_QUESTIONS) -> tuple[list, list
         else:
             eligible.append((ex, paragraphs))
 
-    # Deterministic pseudo-random order: hash of a fixed seed and the question id.
-    eligible.sort(key=lambda item: sample_key(item[0]["_id"]))
+    # Simple random sample over every question that passed the filters: fix a canonical
+    # order (by id, so the source file's order can't matter), permute it with the seed, and
+    # take questions in that order. The one departure from a plain random sample is that a
+    # question whose paragraphs contradict an already-selected one is skipped (counted).
+    eligible.sort(key=lambda item: item[0]["_id"])
+    population_by_type = Counter(ex["type"] for ex, _ in eligible)
+    eligible = seeded_permutation(eligible, seed)
 
     corpus: dict[str, tuple[str, list[tuple[int, int]]]] = {}
     questions = []
@@ -164,7 +186,14 @@ def build_subset(examples: list[dict], n: int = N_QUESTIONS) -> tuple[list, list
     stats = {
         "source_questions": len(examples),
         "rejected": dict(sorted(rejected.items())),
-        "eligible_before_conflicts": len(eligible),
+        "sampling": {
+            "method": "simple random sample without replacement over all questions passing "
+            "the filters (seeded Fisher-Yates permutation of id-sorted eligible questions, "
+            "first n taken; title conflicts skipped)",
+            "seed": seed,
+        },
+        "eligible_population": len(eligible),
+        "eligible_by_type": dict(sorted(population_by_type.items())),
         "selected_questions": len(questions),
         "selected_by_type": dict(sorted(Counter(q["metadata"]["type"] for q in questions).items())),
         "documents": len(documents),
@@ -183,13 +212,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--input", type=Path, required=True, help="hotpot_dev_distractor_v1.json")
     p.add_argument("--out", type=Path, required=True)
     p.add_argument("-n", type=int, default=N_QUESTIONS)
+    p.add_argument("--seed", type=int, default=SEED, help="random-sample seed")
     p.add_argument("--source-url", required=True, help="where the source file came from")
     p.add_argument("--source-revision", default="", help="e.g. a Hugging Face commit sha")
     p.add_argument("--source-sha256", required=True, help="checksum of the downloaded file")
     args = p.parse_args(argv)
 
     raw = args.input.read_bytes()
-    documents, questions, stats = build_subset(json.loads(raw), args.n)
+    documents, questions, stats = build_subset(json.loads(raw), args.n, args.seed)
     args.out.mkdir(parents=True, exist_ok=True)
     write_jsonl(args.out / "corpus.jsonl", documents)
     write_jsonl(args.out / "questions.jsonl", questions)
@@ -199,7 +229,7 @@ def main(argv: list[str] | None = None) -> int:
         "source_sha256": args.source_sha256,
         "original_url": ORIGINAL_URL,
         "builder_input_sha256": hashlib.sha256(raw).hexdigest(),
-        "seed": SEED,
+        "sample_seed": args.seed,
         "builder": "backend/src/judge_check/datasets/hotpotqa.py",
         "builder_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         "license": "CC BY-SA 4.0",
