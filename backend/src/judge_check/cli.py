@@ -3,6 +3,7 @@
 judge-check ingest ../data/hotpotqa_demo --name hotpotqa_demo
 judge-check search "Where was the founder of X born?" --corpus hotpotqa_demo --compare
 judge-check eval-retrieval --corpus hotpotqa_demo -k 5
+judge-check build-variants --corpus hotpotqa_demo
 """
 
 from __future__ import annotations
@@ -312,6 +313,42 @@ def cmd_prompts(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def cmd_build_variants(args: argparse.Namespace) -> None:
+    from judge_check.models import AnswerVariant
+    from judge_check.variants.balance import balance_by_type
+    from judge_check.variants.build import build_variants
+
+    with _session() as session:
+        cs = _chunk_set(session, args.corpus, _chunking(args.chunking))
+        report = build_variants(session, cs, seed=args.seed)
+        session.commit()
+        labelled = session.scalars(
+            select(AnswerVariant).where(
+                AnswerVariant.chunk_set_id == cs.id,
+                AnswerVariant.seed == args.seed,
+                AnswerVariant.status == "labelled",
+            )
+        ).all()
+    print(f"variants for {args.corpus} / {cs.label} at seed {args.seed} (D-035)\n")
+    print(f"{'type':<38}{'kept':>6}{'total':>7}  discards")
+    for name, counts in report.items():
+        total, kept = sum(counts.values()), counts.get("kept", 0)
+        why = ", ".join(f"{r} {n}" for r, n in counts.most_common() if r != "kept")
+        print(f"{name:<38}{kept:>6}{total:>7}  {why or '-'}")
+    bal = balance_by_type(labelled, lambda v: v.variant_type, seed=args.seed)
+    print("\ntype-balanced evaluation set (each group floored at its smallest type):")
+    for t, n in bal.after.items():
+        print(f"  {t:<36}{bal.before[t]:>5} -> {n}")
+    for group, missing in bal.missing_types.items():
+        if missing:
+            print(f"  {group}: not built yet: {', '.join(missing)}")
+    sub = [(v.variant_type, v.sub_kind) for v in bal.kept if v.sub_kind]
+    from collections import Counter
+
+    print("  sub-kinds kept (reported, never balanced):",
+          dict(sorted(Counter(f"{t}/{k}" for t, k in sub).items())))  # fmt: skip
+
+
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="judge-check")
     sub = p.add_subparsers(required=True)
@@ -375,6 +412,12 @@ def main(argv: list[str] | None = None) -> None:
     g.add_argument("--max-tokens", type=int, default=256)
     g.add_argument("-v", "--verbose", action="store_true")
     g.set_defaults(func=cmd_generate)
+
+    bv = sub.add_parser("build-variants", help="labelled answer variants by construction")
+    bv.add_argument("--corpus", required=True)
+    bv.add_argument("--chunking", help="JSON chunking config")
+    bv.add_argument("--seed", type=int, default=20261007)
+    bv.set_defaults(func=cmd_build_variants)
 
     pr = sub.add_parser("prompts", help="list prompts; `lock` releases new versions")
     pr.add_argument("action", choices=["check", "lock"], nargs="?", default="check")

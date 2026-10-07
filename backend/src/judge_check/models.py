@@ -3,6 +3,7 @@
 Stage 1: corpus, document, question, question_evidence, chunk_set, chunk,
          embedding_run, chunk_embedding, bm25_*.
 Stage 2: prompt_template, generated_answer (+ the LLMCallColumns shared with stage 4).
+Stage 3: answer_variant.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from typing import Any
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -286,3 +288,81 @@ class GeneratedAnswer(LLMCallColumns, Base):
     cited_chunk_ids: Mapped[list[int]] = mapped_column(JSONB)
     answerable: Mapped[bool | None]
     parse_error: Mapped[str | None] = mapped_column(Text)
+
+
+# --- answer variants (stage 3) ----------------------------------------------------------------
+
+ACCEPT_TYPES = ("correct", "verbose_correct", "terse_correct", "paraphrased_correct")
+REJECT_TYPES = (
+    "right_topic_wrong_detail", "hedged_nonanswer", "partially_correct",
+    "unsupported_but_plausible", "right_answer_wrong_citation",
+)  # fmt: skip
+
+
+def _sql_list(values: tuple[str, ...]) -> str:
+    return ", ".join(f"'{v}'" for v in values)
+
+
+class AnswerVariant(Base):
+    """A candidate answer whose label is known by construction, or will be given by a human
+    (D-035). Discards are stored too, with the reason, so discard rates can be reported.
+
+    The database itself refuses the labels that would be impossible: an accept-type variant
+    labelled wrong, a constructed label on a row waiting for a human, a labelled row with no
+    text. Stage 4 reads only status = 'labelled'.
+    """
+
+    __tablename__ = "answer_variant"
+    __table_args__ = (
+        UniqueConstraint(
+            "question_id",
+            "chunk_set_id",
+            "seed",
+            "variant_type",
+            "sub_kind",
+            postgresql_nulls_not_distinct=True,
+        ),
+        CheckConstraint(
+            f"variant_type IN ({_sql_list(ACCEPT_TYPES + REJECT_TYPES)})", name="ck_variant_type"
+        ),
+        CheckConstraint("label_source IN ('construction', 'human')", name="ck_label_source"),
+        CheckConstraint(
+            "status IN ('labelled', 'discarded', 'needs_human_review')", name="ck_status"
+        ),
+        # A constructed label must agree with the type's group.
+        CheckConstraint(
+            f"label_source <> 'construction' OR is_correct = "
+            f"(variant_type IN ({_sql_list(ACCEPT_TYPES)}))",
+            name="ck_constructed_label_matches_type",
+        ),
+        # Waiting for a human means no label yet, and the label will be a human's.
+        CheckConstraint(
+            "status <> 'needs_human_review' OR (label_source = 'human' AND is_correct IS NULL)",
+            name="ck_review_has_no_label",
+        ),
+        CheckConstraint(
+            "(status = 'discarded') = (discard_reason IS NOT NULL)", name="ck_discard_reason"
+        ),
+        CheckConstraint("(status = 'discarded') = (text IS NULL)", name="ck_text_iff_kept"),
+        CheckConstraint("status <> 'labelled' OR is_correct IS NOT NULL", name="ck_labelled"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    question_id: Mapped[int] = mapped_column(
+        ForeignKey("question.id", ondelete="CASCADE"), index=True
+    )
+    chunk_set_id: Mapped[int] = mapped_column(ForeignKey("chunk_set.id", ondelete="CASCADE"))
+    seed: Mapped[int] = mapped_column(BigInteger)
+    variant_type: Mapped[str] = mapped_column(Text)
+    sub_kind: Mapped[str | None] = mapped_column(Text)  # type 5: value kind; 7: missing/wrong
+    is_correct: Mapped[bool | None] = mapped_column(Boolean)
+    label_source: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text)
+    discard_reason: Mapped[str | None] = mapped_column(Text)
+    constructor: Mapped[str] = mapped_column(Text)
+    constructor_version: Mapped[int] = mapped_column(Integer)
+    params: Mapped[dict[str, Any]] = mapped_column(JSONB)  # e.g. original and replacement
+    text: Mapped[str | None] = mapped_column(Text)
+    cited_chunk_ids: Mapped[list[int]] = mapped_column(JSONB)
+    guard_report: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

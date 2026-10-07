@@ -20,6 +20,27 @@ CONTAINS_ANSWER_USERS = {
 }
 
 
+# Inside guards.py, every function that uses containment is named here with its one job, all
+# of them exclusion. A generic forwarder ("mentions(value, text)") would be contains_answer
+# under another name, usable anywhere, and would hollow out the scan above (D-035 addendum D).
+GUARD_CONTAINMENT_FUNCTIONS = {
+    "mutation_guards": "replacement absent from gold; original removed",
+    "presence_guard": "a named guard result, stored in the variant's guard_report",
+    "citation_guards": "cited chunks mention neither the answer nor a gold entity",
+    "sentences_not_stating": "type 7a: drop sentences that state the answer",
+    "values_apart_from": "type 7b: drop values that overlap the answer",
+    "chunks_mentioning_none": "type 9: drop distractor chunks that could support",
+}
+
+
+def functions_using_containment(tree: ast.AST) -> set[str]:
+    return {
+        f.name
+        for f in ast.walk(tree)
+        if isinstance(f, ast.FunctionDef | ast.AsyncFunctionDef) and uses_contains_answer(f)
+    }
+
+
 def real_sources() -> dict[Path, str]:
     return {p: p.read_text() for p in sorted(SRC.rglob("*.py"))}
 
@@ -93,6 +114,20 @@ def test_scans_catch_planted_violations() -> None:
         "scoring.py:2",
         "constructors.py:1",
     ]
+
+
+def test_guards_containment_functions_are_the_reviewed_set() -> None:
+    tree = ast.parse((SRC / "variants" / "guards.py").read_text())
+    assert functions_using_containment(tree) == set(GUARD_CONTAINMENT_FUNCTIONS)
+
+
+def test_guard_function_scan_catches_a_forwarder() -> None:
+    planted = ast.parse(
+        "from judge_check.datasets.hotpotqa import contains_answer\n"
+        "def mentions(value, text):\n    return contains_answer(value, text)\n"
+        "def unrelated(x):\n    return x\n"
+    )
+    assert functions_using_containment(planted) == {"mentions"}
 
 
 def test_no_table_stores_a_heuristic() -> None:

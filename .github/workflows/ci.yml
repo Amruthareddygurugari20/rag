@@ -50,6 +50,13 @@ jobs:
           uv run judge-check search "$(head -1 ../data/hotpotqa_demo/questions.jsonl | python3 -c 'import json,sys; print(json.load(sys.stdin)["question"])')" --corpus hotpotqa_demo --compare
           uv run python scripts/show_similarities.py
 
+      # Stage 3: deterministic variants on the demo corpus, with discard rates and the
+      # type-balanced counts (D-035). The label invariants are tested above; this is for reading.
+      - name: Stage 3 variants (deterministic constructors)
+        env:
+          JUDGE_CHECK_DATABASE_URL: postgresql+psycopg://judge_check:judge_check@localhost:5433/judge_check_test
+        run: uv run judge-check build-variants --corpus hotpotqa_demo
+
       # Stage 2: real grounded generation with a small local model. Its output is for reading
       # (and for checking the whole provider -> prompt -> parse -> row path on a real model),
       # not a test: generated answers are never labels (D-032).

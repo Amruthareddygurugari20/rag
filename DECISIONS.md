@@ -1424,3 +1424,76 @@ This is checked by tests, not assumed:
   "early 1970s").
 - `test_untyped_answer_is_never_partially_mutated` builds a type-5 variant for that exact
   answer and asserts it is discarded with the right reason and that no output text exists.
+
+### D-035 addendum D: the other deterministic types as built, and what they yield on the demo
+
+Choices the D-035 table left open, made while building types 1, 2, 3, 7 and 9:
+
+- **Citations are a field, not text.** The variant text has no `[C1]` markers. Cited chunks
+  are stored as `cited_chunk_ids`, and stage 4's judge prompt renders them. One rendering
+  for every type keeps type 9 from being detectable by its formatting.
+- **Type 3 (terse) cites every gold chunk**, not only a chunk holding the answer string. A
+  multi-hop answer is supported by the chain, and choosing "the" chunk would itself need a
+  containment heuristic.
+- **Type 7a (partial-missing)** keeps the gold sentences that don't state the answer. It is
+  discarded unless at least one sentence is dropped *and* at least one kept. If nothing is
+  dropped (for example a yes/no answer), the text is the full evidence: a judge could fairly
+  infer the answer, so a reject label isn't safe. The guard `answer_absent` re-checks the
+  final text.
+  **Known limit:** containment can't see aliases ("LA Tech"). A kept sentence that states the
+  answer in another form would make the reject label wrong. This is measured in stage 5's
+  adjudication sample, not assumed away.
+- **Type 7b (partial-wrong)** mutates one value in a gold sentence that doesn't state the
+  answer:
+  - **Values:** dates, years and bare numerals (a date wins over the year inside it), plus
+    entities, meaning a gold paragraph's title that occurs in that sentence. The bridge
+    entity is usually one.
+  - **Exclusions:** values that overlap the answer either way round are excluded.
+  - **Order:** values are tried in seeded order, with up to 5 draws each.
+  - **Guards:** D-035's five, plus `answer_kept`.
+- **Type 9 (wrong citation)** cites as many distractor chunks as the base cites gold
+  chunks. A chunk is never chosen if it mentions the answer **or any gold paragraph's
+  entity**. The second condition matters for yes/no answers, where the answer's absence
+  says nothing about support. `citation_guards` re-checks the final choice.
+- **No generic containment helper.** Each function in `guards.py` that uses containment is
+  on a reviewed list in `test_heuristic_boundary.py`, and every one of them excludes
+  something. A forwarder such as `mentions(value, text)` fails that test: it would be
+  `contains_answer` under another name, usable anywhere.
+- **The database refuses impossible labels.** CHECK constraints reject:
+  - a constructed label that disagrees with the type's group;
+  - a row awaiting review that has a label or a non-human source;
+  - a kept row without text, or a discard without a reason.
+
+  Each constraint has a planted row in `test_answer_variant_db.py`.
+
+**Yield on the demo** (200 questions, 2-sentence chunks, seed 20261007; the in-memory and database builds
+agree on every outcome, reason and text, checked by a test):
+
+| type | kept | discards |
+|---|---|---|
+| correct | 200 | 0 |
+| verbose_correct | 95 | 105 too little extra context |
+| terse_correct | 200 | 0 |
+| right_topic_wrong_detail | 120 | 79 untyped, 1 guard (absent_from_gold) |
+| partially_correct / missing | 173 | 27 every gold sentence states the answer |
+| partially_correct / wrong | 155 | 43 no typed detail, 1 original_removed, 1 answer_kept |
+| right_answer_wrong_citation | 197 | 3 too few unrelated distractor chunks |
+
+Type 7b's 155 mutations include 37 years, 33 dates and 11 numbers. That is more digit
+material than type 5 has (addendum A), but it is a different question: it asks whether the
+judge notices a wrong **supporting detail**, not a wrong answer. It doesn't fill addendum
+A's gap and isn't reported as if it did.
+
+**For review (no rule changed):**
+
+1. **verbose_correct sets the accept floor.** Only 95 of 200 questions have enough
+   non-gold text in their gold paragraphs to reach 2.5×. Type balancing therefore cuts
+   correct and terse from 200 to 95 each. Those 95 are a random draw from all questions,
+   while verbose's 95 are the questions with long paragraphs. A verbose-vs-correct FRR
+   difference would mix question difficulty with verbosity.
+   **Proposal:** draw the balanced correct/terse rows from the *same questions* as the
+   smallest type, so the comparison is within-question and its variance is lower. The 2.5×
+   threshold stays: lowering it after seeing the yield would be tuning on the data.
+2. **Variants are clustered by question.** Type 7 contributes two rows per question, and
+   every type shares questions. Stage 4's bootstrap intervals must therefore resample
+   **questions**, not variants, or they will be too narrow.

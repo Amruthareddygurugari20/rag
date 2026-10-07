@@ -18,14 +18,9 @@ from dataclasses import dataclass
 from typing import Generic, TypeVar
 
 from judge_check.datasets.hotpotqa import seeded_permutation
+from judge_check.models import ACCEPT_TYPES, REJECT_TYPES
 
 T = TypeVar("T")
-
-ACCEPT_TYPES = ("correct", "verbose_correct", "terse_correct", "paraphrased_correct")
-REJECT_TYPES = (
-    "right_topic_wrong_detail", "hedged_nonanswer", "partially_correct",
-    "unsupported_but_plausible", "right_answer_wrong_citation",
-)  # fmt: skip
 
 
 @dataclass(frozen=True)
