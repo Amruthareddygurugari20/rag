@@ -1,0 +1,45 @@
+cff-version: 1.2.0
+message: >-
+  If you use judge-check in your research, please cite it as below. If you
+  report results on the built-in demo corpus, please also cite HotpotQA (listed
+  under references).
+type: software
+title: "judge-check: measuring how far you can trust an LLM judge in RAG evaluation"
+abstract: >-
+  judge-check measures the reliability of the LLM judge in a RAG evaluation
+  setup. It scores the judge against answer variants whose correctness is known
+  by construction (deterministic mutations of correct answers), anchors the
+  error rates to human adjudication, and reports false-accept and false-reject
+  rates with bootstrap confidence intervals, together with the minimum accuracy
+  difference that is interpretable given those error rates.
+authors:
+  - alias: Amruthareddygurugari20
+version: 0.0.1
+license: MIT
+repository-code: "https://github.com/Amruthareddygurugari20/rag"
+keywords:
+  - retrieval-augmented generation
+  - LLM-as-a-judge
+  - evaluation
+  - measurement error
+references:
+  - type: conference-paper
+    title: "HotpotQA: A Dataset for Diverse, Explainable Multi-hop Question Answering"
+    authors:
+      - family-names: Yang
+        given-names: Zhilin
+      - family-names: Qi
+        given-names: Peng
+      - family-names: Zhang
+        given-names: Saizheng
+      - family-names: Bengio
+        given-names: Yoshua
+      - family-names: Cohen
+        given-names: William W.
+      - family-names: Salakhutdinov
+        given-names: Ruslan
+      - family-names: Manning
+        given-names: Christopher D.
+    collection-title: "Proceedings of the 2018 Conference on Empirical Methods in Natural Language Processing (EMNLP)"
+    year: 2018
+    license: CC-BY-SA-4.0

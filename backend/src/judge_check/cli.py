@@ -22,6 +22,7 @@ from judge_check.ingest.chunking import DEFAULT_CHUNKING, ChunkingConfig, parse_
 from judge_check.ingest.formats import load_eval_set
 from judge_check.ingest.pipeline import build_chunk_set, embed_chunk_set, load_corpus
 from judge_check.models import Chunk, ChunkSet, Corpus, Document, Question
+from judge_check.retrieval import bm25
 from judge_check.retrieval.evaluate import gold_chunk_ids, score_rankings
 from judge_check.retrieval.search import MODES, search
 
@@ -94,7 +95,9 @@ def cmd_search(args: argparse.Namespace) -> None:
 
 
 def cmd_eval_retrieval(args: argparse.Namespace) -> None:
-    embedder = get_embedder(args.model)
+    modes = args.modes.split(",")
+    # BM25-only runs don't need (or download) the embedding model.
+    embedder = get_embedder(args.model) if set(modes) != {"bm25"} else None
     with _session() as session:
         cs = _chunk_set(session, args.corpus, _chunking(args.chunking))
         gold = gold_chunk_ids(session, cs.id)
@@ -106,7 +109,7 @@ def cmd_eval_retrieval(args: argparse.Namespace) -> None:
         print(f"{len(questions)} questions, chunk set {cs.label}, k={args.k}")
         print(f"{'mode':<8} {'recall@k':>9} {'complete@k':>11} {'MRR':>7} {'s/query':>8}")
         results = {}
-        for mode in args.modes.split(","):
+        for mode in modes:
             t0 = time.perf_counter()
             rankings = {
                 qid: [
@@ -119,6 +122,8 @@ def cmd_eval_retrieval(args: argparse.Namespace) -> None:
                         k=args.k,
                         embedder=embedder,
                         use_query_instruction=not args.no_query_instruction,
+                        bm25_k1=args.k1,
+                        bm25_b=args.b,
                     )
                 ]
                 for qid, text in questions
@@ -160,6 +165,8 @@ def main(argv: list[str] | None = None) -> None:
     e.add_argument("-k", type=int, default=10)
     e.add_argument("--limit", type=int, default=0)
     e.add_argument("--no-query-instruction", action="store_true")
+    e.add_argument("--k1", type=float, default=bm25.K1, help="BM25 tf saturation")
+    e.add_argument("--b", type=float, default=bm25.B, help="BM25 length normalisation")
     e.add_argument("--json", action="store_true")
     e.set_defaults(func=cmd_eval_retrieval)
 

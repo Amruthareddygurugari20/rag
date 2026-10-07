@@ -70,7 +70,11 @@ class SentenceTransformerEmbedder:
 
         self.spec = KNOWN_MODELS.get(model_name) or EmbeddingModelSpec(model_name, 0)
         self._model = SentenceTransformer(model_name, device=device)
-        dim = self._model.get_sentence_embedding_dimension()
+        # Renamed in newer sentence-transformers; support both.
+        get_dim = getattr(self._model, "get_embedding_dimension", None) or (
+            self._model.get_sentence_embedding_dimension
+        )
+        dim = get_dim()
         if self.spec.dimension not in (0, dim):
             raise ValueError(f"{model_name}: expected dimension {self.spec.dimension}, got {dim}")
         self.spec = EmbeddingModelSpec(model_name, dim, self.spec.query_instruction)

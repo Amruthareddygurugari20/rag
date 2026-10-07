@@ -85,6 +85,23 @@ deterministically by `backend/src/judge_check/datasets/hotpotqa.py`. The data ca
 attribution, the changes made, the selection filters and known label noise:
 [data/hotpotqa_demo/README.md](data/hotpotqa_demo/README.md).
 
+## Licence and citation
+
+Two licences, with a hard boundary:
+
+| What | Licence |
+|---|---|
+| judge-check code and docs: everything **except** `data/hotpotqa_demo/` | **MIT**, see [LICENSE](LICENSE) |
+| `data/hotpotqa_demo/`, adapted from HotpotQA | **CC BY-SA 4.0**, see its [data card](data/hotpotqa_demo/README.md) |
+
+The MIT licence does not apply to the demo data. If you redistribute or modify the data,
+ShareAlike applies to it, and HotpotQA must be attributed. Using judge-check on your own
+data puts no licence obligations on that data.
+
+To cite judge-check, use [CITATION.cff](CITATION.cff) (GitHub shows a "Cite this
+repository" button). If you report numbers on the demo corpus, also cite HotpotQA (Yang et
+al., EMNLP 2018), which is listed in the file's `references`.
+
 ## Repository layout
 
 ```
@@ -102,6 +119,8 @@ backend/
 data/hotpotqa_demo/  built-in demo corpus (CC BY-SA 4.0)
 docs/learn/          concept notes
 DECISIONS.md         every design choice and why
+LICENSE              MIT (code); data/hotpotqa_demo/ is CC BY-SA 4.0
+CITATION.cff         how to cite judge-check
 ```
 
 ## Roadmap

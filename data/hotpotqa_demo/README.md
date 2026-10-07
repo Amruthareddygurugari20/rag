@@ -120,6 +120,21 @@ population, not HotpotQA dev as a whole: the filters remove all yes/no questions
 are mostly comparison questions. Retrieval and judge numbers on this corpus should be
 reported as being on "HotpotQA dev, filtered as described, n = 200".
 
+**This draw (seed 20261007): bridge/comparison.**
+
+|  | eligible population | sample |
+|---|---|---|
+| bridge | 5,850 (85.1%) | 180 (90.0%) |
+| comparison | 1,023 (14.9%) | 20 (10.0%) |
+
+Under simple random sampling the expected number of comparison questions is 29.8. Drawing
+20 or fewer has probability 0.027 (exact hypergeometric), about 0.05 two-sided. So this
+draw under-represents comparison questions by roughly two standard deviations. It is
+chance, not a bug, and the seed was fixed before the draw was seen. We deliberately did
+**not** re-draw with another seed: choosing a seed after seeing its outcome would make the
+sample depend on what we wanted to see. Per-type numbers should be reported separately,
+and comparison-question results at n = 20 carry wide intervals.
+
 ## Known label noise in HotpotQA
 
 These are documented problems with the source data. They matter here because judge-check

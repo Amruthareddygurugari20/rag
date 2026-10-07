@@ -80,6 +80,8 @@ def search(
     embedder: Embedder | None = None,
     use_query_instruction: bool = True,
     candidates: int = CANDIDATES,
+    bm25_k1: float = bm25.K1,
+    bm25_b: float = bm25.B,
 ) -> list[Hit]:
     dense: list[tuple[int, float]] = []
     lexical: list[tuple[int, float]] = []
@@ -90,7 +92,14 @@ def search(
         qvec = embedder.embed_queries([query], use_instruction=use_query_instruction)[0]
         dense = dense_search(session, run.id, qvec, candidates if mode == "hybrid" else k)
     if mode in ("bm25", "hybrid"):
-        lexical = bm25.search(session, chunk_set_id, query, candidates if mode == "hybrid" else k)
+        lexical = bm25.search(
+            session,
+            chunk_set_id,
+            query,
+            candidates if mode == "hybrid" else k,
+            k1=bm25_k1,
+            b=bm25_b,
+        )
 
     dense_rank = {cid: r for r, (cid, _) in enumerate(dense, 1)}
     bm25_rank = {cid: r for r, (cid, _) in enumerate(lexical, 1)}
