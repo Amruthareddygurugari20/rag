@@ -6,18 +6,37 @@ requires-python = ">=3.11"
 dependencies = [
     "alembic>=1.13",
     "fastapi>=0.115",
+    "numpy>=1.26",
+    "pgvector>=0.3",
     "psycopg[binary]>=3.2",
     "pydantic-settings>=2.4",
+    "rank-bm25>=0.2.2",
+    "sentence-transformers>=3.0",
     "sqlalchemy>=2.0.30",
+    "torch>=2.4",
     "uvicorn[standard]>=0.30",
 ]
+
+[project.scripts]
+judge-check = "judge_check.cli:main"
 
 [dependency-groups]
 dev = [
     "httpx>=0.27",
+    "hypothesis>=6.100",
     "pytest>=8.3",
     "ruff>=0.6",
 ]
+
+# CPU-only torch on Linux/Windows: the default PyPI wheels there bundle CUDA (several GB).
+# macOS wheels on PyPI are already CPU/Metal-only. See DECISIONS.md D-016.
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform != 'darwin'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [build-system]
 requires = ["hatchling"]
@@ -29,6 +48,7 @@ packages = ["src/judge_check"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
+    "model: needs the real embedding model (skipped locally if unavailable, fatal when JUDGE_CHECK_REQUIRE_MODEL=1)",
     "db: needs a reachable Postgres+pgvector (skipped locally if absent, fatal when JUDGE_CHECK_REQUIRE_DB=1)",
 ]
 

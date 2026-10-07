@@ -16,7 +16,7 @@ jobs:
           POSTGRES_DB: judge_check_test
         ports: ["5433:5432"]
         options: >-
-          --health-cmd "pg_isready -U judge_check" --health-interval 2s --health-retries 30
+          --health-cmd "pg_isready -U judge_check -d judge_check_test" --health-interval 2s --health-retries 30
     env:
       # DB-marked tests fail instead of skipping if the database is missing (D-009).
       JUDGE_CHECK_REQUIRE_DB: "1"
@@ -24,8 +24,8 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
       - run: uv python install 3.11  # test on the minimum supported version
       - run: uv sync --python 3.11
       - run: uv run ruff check .

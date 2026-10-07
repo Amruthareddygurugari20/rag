@@ -1,0 +1,50 @@
+# Regenerates committed files that need network access to build:
+#   backend/uv.lock          (resolves CPU-only torch from download.pytorch.org)
+#   data/hotpotqa_demo/*     (downloads the official HotpotQA dev set and rebuilds the subset)
+# Run it manually from the Actions tab. It commits any changes back to the branch it ran on.
+# The subset build is deterministic, so re-running it with an unchanged source is a no-op.
+name: refresh-generated
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+
+      - name: Lock Python dependencies
+        working-directory: backend
+        run: uv lock
+
+      - name: Download HotpotQA dev (distractor)
+        # Downloaded data is untrusted: keep it in its own directory, outside the repo.
+        run: |
+          mkdir -p "$RUNNER_TEMP/hotpot"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/hotpot/hotpot_dev_distractor_v1.json" \
+            http://curtis.ml.cmu.edu/datasets/hotpot/hotpot_dev_distractor_v1.json
+          sha256sum "$RUNNER_TEMP/hotpot/hotpot_dev_distractor_v1.json"
+
+      - name: Build the demo subset
+        # Plain stdlib Python in isolated mode (-I): nothing from the cwd or env is imported.
+        run: |
+          python3 -I backend/src/judge_check/datasets/hotpotqa.py \
+            --input "$RUNNER_TEMP/hotpot/hotpot_dev_distractor_v1.json" \
+            --out data/hotpotqa_demo
+
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/uv.lock data/hotpotqa_demo
+          if git diff --cached --quiet; then
+            echo "Nothing changed."
+          else
+            git commit -m "Refresh generated files (uv.lock, HotpotQA demo subset)"
+            git push
+          fi
