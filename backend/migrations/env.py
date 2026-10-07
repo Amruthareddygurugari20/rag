@@ -3,6 +3,7 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import create_engine
 
+import judge_check.models  # noqa: F401  (registers tables on Base.metadata)
 from judge_check.config import get_settings
 from judge_check.db import Base
 

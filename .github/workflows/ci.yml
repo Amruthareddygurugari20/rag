@@ -18,16 +18,34 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U judge_check -d judge_check_test" --health-interval 2s --health-retries 30
     env:
-      # DB-marked tests fail instead of skipping if the database is missing (D-009).
+      # Marked tests fail instead of skipping if the database or model is missing (D-009).
       JUDGE_CHECK_REQUIRE_DB: "1"
+      JUDGE_CHECK_REQUIRE_MODEL: "1"
     defaults:
       run:
         working-directory: backend
     steps:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v7
+      - uses: actions/cache@v5
+        with:
+          path: ~/.cache/huggingface
+          key: hf-${{ runner.os }}-bge-small-en-v1.5
       - run: uv python install 3.11  # test on the minimum supported version
       - run: uv sync --python 3.11
       - run: uv run ruff check .
       - run: uv run ruff format --check .
-      - run: uv run pytest -v
+      # -rP prints the captured output of passing tests (the query-instruction ablation).
+      - run: uv run pytest -v -rP
+
+      # End-to-end demo on the built-in corpus. Not a test: its output is for reading.
+      - name: Retrieval demo (ingest, evaluate, raw similarities)
+        env:
+          JUDGE_CHECK_DATABASE_URL: postgresql+psycopg://judge_check:judge_check@localhost:5433/judge_check_test
+        run: |
+          uv run alembic upgrade head
+          uv run judge-check ingest ../data/hotpotqa_demo --name hotpotqa_demo --replace
+          uv run judge-check eval-retrieval --corpus hotpotqa_demo -k 5
+          uv run judge-check eval-retrieval --corpus hotpotqa_demo -k 5 --no-query-instruction
+          uv run judge-check search "$(head -1 ../data/hotpotqa_demo/questions.jsonl | python3 -c 'import json,sys; print(json.load(sys.stdin)["question"])')" --corpus hotpotqa_demo --compare
+          uv run python scripts/show_similarities.py

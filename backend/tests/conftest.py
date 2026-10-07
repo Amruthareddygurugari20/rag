@@ -55,6 +55,9 @@ def db_engine(db_url: str) -> Iterator[Engine]:
 
 @pytest.fixture
 def db_session(db_engine: Engine) -> Iterator[Session]:
+    """A session on an empty test database (every corpus and its dependents removed)."""
+    with db_engine.begin() as conn:
+        conn.execute(text("TRUNCATE corpus CASCADE"))
     with sessionmaker(bind=db_engine)() as session:
         yield session
 
