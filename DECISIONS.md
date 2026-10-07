@@ -715,3 +715,80 @@ after ANALYZE:  HashAggregate ← Nested Loop(Aggregate(bm25_doc), Seq Scan bm25
 That's 280× slower, for identical results. The test suite didn't catch it because the
 test database had statistics left over from earlier runs. `ANALYZE` (unlike `VACUUM`) can
 run inside a transaction, so ingestion stays atomic.
+
+---
+
+## D-028: Fusion of dense and BM25: weighted variants, cross-fitted. Default UNRESOLVED
+
+**Stage:** 1 · **Status:** unresolved; needs a second corpus with naturally sampled negatives
+
+### The finding that prompted this
+
+Equal-weight RRF (D-022) is *worse* than dense alone on the demo corpus, measured as paired
+differences over the same 200 questions (CI run 9):
+
+| vs dense | Δ recall@5 | Δ complete@5 | Δ MRR@5 |
+|---|---|---|---|
+| BM25 alone | −0.177 (SE 0.025, z −7.2) | −0.260 (SE 0.038, z −6.9) | −0.117 (SE 0.028, z −4.2) |
+| hybrid, equal-weight RRF | −0.050 (SE 0.019, z −2.6) | −0.075 (SE 0.032, z −2.3) | −0.051 (SE 0.021, z −2.5) |
+
+### Scope: this is a fact about this corpus, not about hybrid retrieval
+
+HotpotQA's distractor paragraphs were **selected by bigram TF-IDF similarity to the
+question** (Yang et al., EMNLP 2018). Every question's context is padded with paragraphs
+picked *because* they share words with it. BM25 is handed an adversarial setting by
+construction: the negatives were chosen by a lexical retriever close to BM25 itself. A
+lexical retriever is expected to do badly here, and pulling its ranking into the fused list
+is expected to hurt. **None of this transfers to corpora whose negatives are sampled
+naturally** (a real document collection, where non-relevant text isn't chosen for word
+overlap). On such corpora hybrid retrieval often helps, and nothing here contradicts that.
+
+### What was tested
+
+- Weighted RRF, score(d) = α/(60 + rank_dense) + (1 − α)/(60 + rank_bm25).
+- A linear combination of per-query min-max-normalised scores,
+  α·dense + (1 − α)·bm25.
+- α swept from 0 to 1 in steps of 0.1 (1 = dense only, 0.5 = equal weights).
+- 100 candidates per retriever, metrics at k = 5.
+
+Picking the best α from that curve and reporting its score would be tuning on the test set.
+So the claim-bearing number is **cross-fitted**: α is chosen on one half of the questions
+and scored on the other half, then the halves swap. Ties between α values resolve towards
+0.5, so a move away from equal weighting has to be earned by the data. One fixed 2-fold
+split leaves the α choice noisy at n = 100 per fold, so the cross-fitted score is repeated
+over many random partitions and reported as a distribution (see "Result").
+
+### Pre-registered prediction
+
+Written and committed **before** reading the output of the CI runs that contain the sweep.
+At the time of writing, run 10 (single fixed 2-fold split) had executed and its log had not
+been opened, and the repeated-partition version had not run at all. The commit containing
+this paragraph is the timestamp.
+
+> **Prediction.** For both weighted RRF and linear fusion:
+> 1. The cross-fitted α lands near 1 (≥ 0.8 in most partitions): dense only, or nearly
+>    so.
+> 2. The cross-fitted held-out MRR@5 is **not better than dense**. Its paired difference
+>    from dense is ≤ 0 or within noise, and its distribution over random partitions
+>    straddles 0 or lies below it.
+> 3. Reason: BM25 is fed TF-IDF-selected distractors, so it carries little independent
+>    signal that dense lacks. Fusion has nothing to add and can only dilute.
+>
+> If weighted fusion beats dense by a margin clearly outside the partition-to-partition
+> spread, the prediction is wrong, and that is the more interesting result: BM25 would be
+> carrying complementary signal even under adversarial distractors.
+
+### Result
+
+*To be filled in from the CI output, without editing anything above this line.*
+
+### Decision
+
+**The default fusion is UNRESOLVED.** Settling it needs a second corpus with naturally
+sampled negatives; one adversarial corpus can't settle it either way. Until then:
+- Hybrid stays available (`--mode hybrid`), unchanged.
+- Stage 2 uses **dense** as its *working* retrieval mode. That's the best-measured option
+  on the corpus we actually have, and a choice for getting on with the build, not a finding
+  about hybrid retrieval. It's a single config switch.
+- No further fusion work in stage 1. The retrieval layer only has to produce answers worth
+  judging.
