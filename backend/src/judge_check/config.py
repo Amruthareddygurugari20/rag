@@ -21,6 +21,12 @@ class Settings(BaseSettings):
         "postgresql+psycopg://judge_check:judge_check@localhost:5433/judge_check_test"
     )
     ollama_base_url: str = "http://localhost:11434"
+    # Default generation model (stage 2): small enough for CPU, good enough to cite.
+    generation_model: str = "qwen2.5:3b"
+    # Optional Azure OpenAI provider (D-011, D-029). Unset = not available.
+    azure_openai_endpoint: str = ""
+    azure_openai_api_key: str = ""
+    azure_openai_api_version: str = "2024-10-21"
 
 
 @lru_cache

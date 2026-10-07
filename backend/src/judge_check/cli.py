@@ -16,6 +16,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from judge_check.config import get_settings
 from judge_check.db import get_engine
 from judge_check.embeddings import DEFAULT_MODEL, get_embedder
 from judge_check.ingest.chunking import DEFAULT_CHUNKING, ChunkingConfig, parse_chunking
@@ -236,6 +237,53 @@ def cmd_fusion_sweep(args: argparse.Namespace) -> None:
         print(f"          alpha chosen (count over {len(rc.alphas_chosen)} folds): {alpha_counts}")
 
 
+def cmd_generate(args: argparse.Namespace) -> None:
+    """Generate grounded answers for a corpus's questions and summarise them.
+
+    The summary's 'reference in answer' and 'cites gold' columns are descriptive
+    heuristics. They are NOT correctness labels and are never used as such (D-000, D-032).
+    """
+    from judge_check.datasets.hotpotqa import contains_answer
+    from judge_check.generation import generate_answer
+    from judge_check.llm.factory import make_client
+
+    client = make_client(args.provider, args.model or get_settings().generation_model)
+    embedder = get_embedder(args.embedding_model)
+    with _session() as session:
+        cs = _chunk_set(session, args.corpus, _chunking(args.chunking))
+        gold = gold_chunk_ids(session, cs.id)
+        questions = session.execute(
+            select(Question.id, Question.reference_answer)
+            .where(Question.corpus_id == cs.corpus_id)
+            .order_by(Question.id)
+        ).all()[: args.limit or None]
+        n_ok = n_contains = n_cites_gold = n_unanswerable = 0
+        versions = set()
+        for i, (qid, ref) in enumerate(questions, 1):
+            row = generate_answer(
+                session, client, qid, cs.id, embedder, mode=args.mode, k=args.k,
+                temperature=args.temperature, seed=args.seed, max_tokens=args.max_tokens,
+            )  # fmt: skip
+            session.commit()
+            versions.add(row.model_version)
+            status = row.parse_error or ("unanswerable" if not row.answerable else "ok")
+            if row.parse_error is None:
+                n_ok += 1
+                n_unanswerable += not row.answerable
+                n_contains += contains_answer(ref, row.answer)
+                n_cites_gold += bool(set(row.cited_chunk_ids) & gold.get(qid, set()))
+            if args.verbose:
+                print(f"[{i}/{len(questions)}] {status:<14} {row.latency_ms:>6} ms  "
+                      f"{(row.answer or row.output_text)[:90]!r}")  # fmt: skip
+        n = len(questions)
+        print(f"\n{n} answers from {', '.join(sorted(versions))}")
+        print(f"  parsed OK              {n_ok}/{n}  (failures are stored with their reason)")
+        print(f"  declared unanswerable  {n_unanswerable}/{n_ok}")
+        print("  Heuristics only, NOT correctness labels:")
+        print(f"    reference string in answer   {n_contains}/{n_ok}")
+        print(f"    cites >= 1 gold chunk        {n_cites_gold}/{n_ok}")
+
+
 def cmd_prompts(args: argparse.Namespace) -> None:
     from judge_check.prompts import add_new_prompts_to_lock, all_prompts, lock_problems
 
@@ -298,6 +346,21 @@ def main(argv: list[str] | None = None) -> None:
     f.add_argument("--repeats", type=int, default=200, help="random 2-fold partitions")
     f.add_argument("--seed", type=int, default=20261007)
     f.set_defaults(func=cmd_fusion_sweep)
+
+    g = sub.add_parser("generate", help="grounded answers with citations (stage 2)")
+    g.add_argument("--corpus", required=True)
+    g.add_argument("--provider", choices=["ollama", "azure_openai"], default="ollama")
+    g.add_argument("--model", help="Ollama tag or Azure deployment (default from settings)")
+    g.add_argument("--embedding-model", default=DEFAULT_MODEL)
+    g.add_argument("--chunking", help="JSON chunking config")
+    g.add_argument("--mode", choices=MODES, default="dense", help="retrieval mode (D-028)")
+    g.add_argument("-k", type=int, default=5)
+    g.add_argument("--limit", type=int, default=0)
+    g.add_argument("--temperature", type=float, default=0.0)
+    g.add_argument("--seed", type=int, default=0)
+    g.add_argument("--max-tokens", type=int, default=256)
+    g.add_argument("-v", "--verbose", action="store_true")
+    g.set_defaults(func=cmd_generate)
 
     pr = sub.add_parser("prompts", help="list prompts; `lock` releases new versions")
     pr.add_argument("action", choices=["check", "lock"], nargs="?", default="check")

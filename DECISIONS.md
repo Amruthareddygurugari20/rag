@@ -416,11 +416,22 @@ same, followed by one more line:
 
 > In all cases, the documents/passages do not need to add the instruction.
 
-**Reading.** The null agrees with the vendor's own hedge. HotpotQA questions are long,
-well-formed sentences, not the "short queries" the instruction is recommended for. We keep
-the prefix (it's how the model was trained, it costs nothing, and the point estimate leans
-its way), and the null is recorded as a result. The prediction going in was a measurable
-drop without the prefix. It was wrong, and that is what the measurement is for.
+**Reading.** The null agrees with the vendor's own hedge. We keep the prefix (it's how the
+model was trained, it costs nothing, and the point estimate leans its way), and the null is
+recorded as a result. The prediction going in was a measurable drop without the prefix. It
+was wrong, and that is what the measurement is for.
+
+**Mechanism: a hypothesis, not measured.** *Hypothesis:* the prefix has no effect here
+because HotpotQA questions are long, well-formed sentences, while BAAI recommends the
+instruction for "short queries". This is plausible and fits the model card, but nothing
+above tests it: the null was measured, the reason was not.
+
+*The test that would settle it* (**parked**, not done): split the 200 questions into
+quartiles by token length and compute the paired with/without-prefix difference within each.
+The hypothesis predicts an effect in the shortest quartile and none in the longest. It's
+cheap (query embeddings only, passages are cached), but with ~50 questions per quartile the
+per-quartile paired SE will be around 0.01. An effect smaller than about 0.03 would be
+inconclusive, so read the result with that floor in mind.
 
 ---
 
@@ -976,3 +987,55 @@ tests turns "we used the same path" from a promise into something CI checks.
 would have crashed on the first real call. Braces are now escaped. The draft was locked
 locally for two minutes and never pushed or used, so v1 was corrected in place. Immutability
 starts at release.
+
+**When a prompt becomes immutable.** "Released" means pushed. From then on, and certainly
+once any stored row references its hash, a change requires a new version. If the file under
+a referenced hash changed, the attribution columns would point at a prompt that no longer
+exists as it ran. The lock test enforces this for every released prompt. The one in-place fix
+above was legitimate only because nothing had used it or seen it.
+
+---
+
+## D-032: Label provenance is a first-class field, and judge error rates are reported by it
+
+**Stage:** 2 (decided) · applies to stages 3, 5, 6 · **Status:** binding
+
+**Decision.**
+1. Every `answer_variant` carries `label_source`, which is one of exactly two values:
+   - `construction`: correctness fixed by how the variant was built (D-000). Deterministic
+     mutations, and correct variants built from the reference answer plus the gold-chunk
+     citation, with an LLM only rephrasing.
+   - `human`: correctness decided by human adjudication in stage 5.
+
+   There is no third value, and in particular no "model". A database `CHECK` will restrict
+   it to these two when the table is created in stage 3.
+2. **Generated answers (stage 2) are never labelled by construction.** A model wrote them,
+   so their correctness is unknown. They enter the evaluation set only after a human
+   adjudicates them in stage 5, as variants with `label_source = "human"`. Until then they
+   are unlabelled text and carry no weight in any error rate.
+3. **Stage 6 reports every judge's false-accept and false-reject rates separately by
+   `label_source`**, as well as pooled, with the difference and its CI. In particular: FRR
+   on construction-correct variants vs FRR on human-labelled generated-correct answers.
+
+**Why.**
+- *Circularity.* Labelling a generated answer `correct` because it reads well is the
+  circularity D-000 forbids. It would also contaminate the headline: a judge "wrongly
+  rejecting" such a variant might be correctly rejecting a bad generation, and the two
+  cases couldn't be told apart.
+- *Realism.* Constructed-correct variants are systematically cleaner than real RAG output:
+  shorter, more direct, less hedged. If judges were only tested on clean text, the measured
+  false-reject rate might not transfer to the messy output people actually judge. That's
+  the standard critique of synthetic benchmarks.
+- *Measuring it instead of conceding it.* Human-labelled generated answers give realistic
+  text a legitimate path into the evaluation set, through the only process allowed to
+  decide correctness. Reporting error rates split by provenance turns the realism gap into
+  a measured number. If a judge's FRR differs between constructed-correct and
+  human-labelled generated-correct answers, **that gap is a finding**: the constructed set
+  isn't representative of real output for that judge.
+
+**Consequence for stage 5's sampling.** The adjudication queue must include generated
+answers, not only constructed variants. Otherwise the human-labelled stratum is empty and
+the comparison in (3) can't be made. How many to include gets decided in stage 5 by the
+same power reasoning as D-013: the gap is only reportable if both strata are large enough
+for their FRR intervals to be useful.
+
