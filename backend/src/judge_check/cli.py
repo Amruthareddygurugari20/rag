@@ -245,7 +245,7 @@ def cmd_generate(args: argparse.Namespace) -> None:
     """
     from judge_check.diagnostics import cites_gold, reference_in_answer
     from judge_check.generation import exclusion_report, generate_answer
-    from judge_check.generation_policy import is_eval_eligible
+    from judge_check.generation_policy import MIN_REVIEWED, PLAUSIBLE_LB_THRESHOLD
     from judge_check.llm.factory import make_client
 
     client = make_client(args.provider, args.model or get_settings().generation_model)
@@ -286,8 +286,13 @@ def cmd_generate(args: argparse.Namespace) -> None:
                 f"    {r.model_version}: {r.parse_failures}/{r.total} parse failures "
                 f"({r.excluded_rate:.0%}) excluded; {r.unanswerable} declared unanswerable"
             )
-            if not is_eval_eligible(r.model_requested_tag, get_settings().eval_generator_models):
-                print("      not an eval-eligible generator (smoke test / not allowlisted)")
+        print(
+            "  These rates describe how THIS model formatted its output on THIS run (JSON\n"
+            "  compliance, citation discipline). They are not findings about grounded\n"
+            "  generation, and no generator is eval-eligible until reviewers have measured\n"
+            f"  its plausibility (Wilson LB >= {PLAUSIBLE_LB_THRESHOLD} over >= {MIN_REVIEWED}"
+            " reviews, D-032 A)."
+        )
         print("  Heuristics only, NOT correctness labels:")
         print(f"    reference string in answer   {n_contains}/{n_ok}")
         print(f"    cites >= 1 gold chunk        {n_cites_gold}/{n_ok}")

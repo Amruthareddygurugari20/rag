@@ -64,11 +64,18 @@ jobs:
           for i in $(seq 1 30); do curl -sf localhost:11434/api/tags >/dev/null && break; sleep 1; done
           ollama pull qwen2.5:0.5b
 
-      - name: Stage 2 generation demo (Ollama, 20 questions)
+      - name: "Stage 2 SMOKE TEST: Ollama generation (qwen2.5:0.5b, 20 questions)"
         env:
           JUDGE_CHECK_DATABASE_URL: postgresql+psycopg://judge_check:judge_check@localhost:5433/judge_check_test
         run: |
+          echo "SMOKE TEST. qwen2.5:0.5b proves the Ollama path works; it is not a generator."
+          echo "Its parse-failure rate is a fact about a 0.5B model's JSON compliance, NOT a"
+          echo "finding about grounded generation (D-034). Do not quote it as one."
           uv run judge-check generate --corpus hotpotqa_demo --model qwen2.5:0.5b --limit 20 -v
+          echo "Deliberate exercise of the parse-failure path on REAL output: an 8-token cap"
+          echo "truncates the JSON, so this one generation must be stored as a parse failure."
+          uv run judge-check generate --corpus hotpotqa_demo --model qwen2.5:0.5b --limit 1 --max-tokens 8 -v
+          uv run python scripts/check_stage2_acceptance.py
 
       # The model card's own guidance on the query instruction, verbatim and pinned to the
       # revision we read it at (quoted in DECISIONS.md D-017).

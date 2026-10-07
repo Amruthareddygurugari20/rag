@@ -1040,7 +1040,7 @@ same power reasoning as D-013: the gap is only reportable if both strata are lar
 for their FRR intervals to be useful.
 
 
-### D-032 addendum A: the provenance comparison is only valid for competent generators
+### D-032 addendum A: the provenance comparison is only valid for competent generators (SUPERSEDED in part by addendum A-revised below: the allowlist and deny-list described here are no longer the gate)
 
 *Written before stage 3 depends on it.*
 
@@ -1112,3 +1112,89 @@ fallback when adjudication is thin. Documentation alone doesn't prevent that; th
 already found its own teaching doc contradicting the data (stage 1, `01-retrieval.md` §5).
 So the boundary is enforced the same way as the single call path (D-031): by a test that
 reads the code.
+
+### D-032 addendum A-revised: the gate is measured plausibility, not a list of names
+
+**Supersedes** the allowlist/deny-list mechanism in addendum A. The principle stands: the
+provenance comparison is only valid for generators whose output is plausible.
+
+**Why the change.** A deny-list naming `qwen2.5:0.5b` doesn't generalise: `qwen2.5:1.5b` or
+`gemma3:270m` would pass straight through. An allowlist only encodes our *expectation* of
+which models are competent. The durable rule is the measurement addendum A introduced as a
+secondary check: reviewers mark plausibility separately from correctness. That measurement
+is now **the** gate.
+
+**The gate (pre-registered, committed before any generator had been reviewed).** An exact
+`model_version` (tag@digest, so re-pulled weights start from zero) is eval-eligible only if
+
+> **Wilson 95% lower bound of (plausible / reviewed) ≥ 0.80, with reviewed ≥ 40.**
+
+At n = 40 that needs ≥ 37 plausible (92%); at n = 100, ≥ 88. Operating characteristic
+(probability of passing):
+
+| true plausible rate | n = 40 | n = 100 |
+|---|---|---|
+| 0.95 | 0.86 | 1.00 |
+| 0.90 | 0.42 | 0.80 |
+| 0.85 | 0.13 | 0.25 |
+
+It's deliberately asymmetric. Wrongly admitting an implausible generator inverts the
+measurement; wrongly excluding a good one only costs more reviews. Why Wilson rather than
+the point estimate: 10/10 plausible has a Wilson lower bound of 0.72. A perfect small sample
+is not evidence of a reliably plausible generator.
+
+**Implementation.** `generation_policy.is_eval_eligible(plausible, reviewed)` takes counts
+**only**, and a test pins its signature, so no model name can admit or exclude anything.
+The deny-list is gone. The old allowlist is now `candidate_generator_models`, a convenience
+default for which generators stage 5 *samples for review*, explicitly not a gate. The
+threshold values are pinned by a test, so changing them means changing this entry.
+
+**Stage 5 obligations (recorded now so stage 5 can't skip them).**
+- Sample generated answers for review from every candidate generator.
+- Record plausibility separately from correctness.
+- Only answers from generators that pass the gate count in the evaluation set.
+- An eligible generator's individually implausible outputs are still recorded, so stage 6
+  can report the plausible rate next to its results.
+
+---
+
+## D-034: Stage 2 acceptance criteria, and what the smoke test does and doesn't show
+
+**Stage:** 2 · **Status:** criteria for closing stage 2
+
+The CI model, `qwen2.5:0.5b`, is a smoke test (D-032 A-revised), so stage 2 is accepted on
+**plumbing, not quality**. No quality number is required. These four criteria are
+checked by `backend/scripts/check_stage2_acceptance.py` in CI, which exits non-zero on any
+failure:
+
+1. **The Ollama path works end to end:** ≥ 1 stored answer parsed and mapped to chunk ids.
+2. **Attribution holds a real digest:** every Ollama row's `model_version` matches
+   `<tag>@<64-hex digest>`, and every attribution column is set.
+3. **The parse-failure path ran on real model output:** ≥ 1 stored failure with its reason
+   and raw output. Not left to chance: CI also runs one generation with `--max-tokens 8`,
+   which truncates the JSON and must be stored as a failure.
+4. **A green CI run on the tip of the branch.**
+
+**Evidence so far** (CI run #15, id 37687650414, commit `35986de`, before the acceptance
+script existed):
+- 20 generations, recorded as
+  `qwen2.5:0.5b@a8b0c51577010a279d933d14c2a8ab4b268079d44c5c8830c0a93900f1827c67`
+  (Ollama reports the bare 64-hex digest).
+- 14 parsed and cited, at 1.3–2.2 s per answer on CI CPU.
+- 6 stored parse failures, all from the strict parser on real output: 5 cited an empty
+  label `""` while claiming `answerable: true`, and 1 cited `":C4"` and `":C5"` (malformed
+  labels; the parser doesn't guess what was meant).
+- The run also shows the attribution constraints firing in the database: Postgres logged the
+  NOT NULL and CHECK rejections that `test_llm_call_columns.py` provokes.
+
+**What these numbers are not.** "6/20 parse failures" is a fact about **a 0.5B model's JSON
+and citation compliance under this prompt**. It is **not** a finding about grounded
+generation, about `grounded_answer.v1`, or about any eligible generator. The CI step is
+named "SMOKE TEST" and prints the same warning, so the log can't be quoted as a quality
+result without the caveat attached. The heuristic lines in that output ("reference in
+answer 6/14", "cites gold 9/14") are heuristics (D-033) on a smoke-test model, and carry no
+information about anything.
+
+**Closing condition.** Criteria 1–3 are checked inside the run, and criterion 4 is that run
+being green on the branch tip. Until then, stage 2 stays open and stage 3 doesn't start.
+

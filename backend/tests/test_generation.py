@@ -153,4 +153,3 @@ def test_exclusion_report_counts_per_model_version(db_session: Session, setup) -
         1,
     )
     assert row.excluded_rate == pytest.approx(1 / 3)
-    assert row.model_requested_tag == "fake-llm"

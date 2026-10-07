@@ -45,10 +45,13 @@ representative synthetic benchmarks are, a weakness others concede but don't mea
 
 Two conditions keep that comparison honest:
 
-- **The generator must be competent** (D-032 A). A 0.5B model's answers are trivially
-  rejectable, which would make the "realistic" arm *easier* than the constructed one and
-  the gap come out backwards. Eligible generators are an explicit allowlist (7–8B local, or
-  Azure). The CI smoke-test model is on a deny-list no setting can override.
+- **The generator must produce plausible output, and that's measured, not assumed**
+  (D-032 A-revised). A 0.5B model's answers are trivially rejectable, which would make the
+  "realistic" arm *easier* than the constructed one and the gap come out backwards. A list
+  of allowed model names wouldn't generalise (a 1.5B model would slip through). So the gate
+  is reviewer-measured plausibility: a generator counts only once the Wilson 95% lower bound
+  of its plausible rate is ≥ 0.80 over ≥ 40 reviews. That threshold was fixed before any
+  model was reviewed.
 - **Parse failures are excluded and counted** (D-032 B). They're unusable, not wrong.
   Dropping them silently skews the pool towards questions the generator found easy, so the
   exclusion rate is reported per model version as a selection-bias statement.

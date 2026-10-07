@@ -185,11 +185,6 @@ class ExclusionRow:
     unanswerable: int
 
     @property
-    def model_requested_tag(self) -> str:
-        # model_version is "tag@digest" for Ollama, "model+fingerprint" for Azure.
-        return self.model_version.split("@", 1)[0].split("+", 1)[0]
-
-    @property
     def excluded_rate(self) -> float:
         return self.parse_failures / self.total if self.total else 0.0
 
