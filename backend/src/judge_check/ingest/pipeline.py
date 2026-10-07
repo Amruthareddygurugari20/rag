@@ -3,7 +3,7 @@
 Three steps, each idempotent and separately callable:
 
     corpus    = load_corpus(session, "hotpotqa_demo", documents, questions)
-    chunk_set = build_chunk_set(session, corpus, SentenceWindow(sentences_per_chunk=2))
+    chunk_set = build_chunk_set(session, corpus, SentenceWindow(sentences_per_chunk=2))  # + BM25
     run       = embed_chunk_set(session, chunk_set, embedder)
 """
 
@@ -26,6 +26,7 @@ from judge_check.models import (
     Question,
     QuestionEvidence,
 )
+from judge_check.retrieval import bm25
 
 
 def load_corpus(
@@ -117,6 +118,8 @@ def build_chunk_set(session: Session, corpus: Corpus, config: ChunkingConfig) ->
     if rows:
         session.execute(insert(Chunk), rows)
     session.flush()
+    # The lexical index belongs to the chunking, so it is built with it.
+    bm25.build_index(session, chunk_set)
     return chunk_set
 
 

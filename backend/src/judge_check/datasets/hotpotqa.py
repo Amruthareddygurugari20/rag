@@ -23,10 +23,9 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-SOURCE_URL = "http://curtis.ml.cmu.edu/datasets/hotpot/hotpot_dev_distractor_v1.json"
-# Pinned from the first download (see .github/workflows/build-demo-data.yml). While it is
-# None the build still runs, records the digest in MANIFEST.json, and warns.
-SOURCE_SHA256: str | None = None
+# Original distribution. Unreachable when the subset was built (2026-10-07), so the build uses
+# the Hugging Face copy, converted back to this layout (D-013). Provenance goes into MANIFEST.
+ORIGINAL_URL = "http://curtis.ml.cmu.edu/datasets/hotpot/hotpot_dev_distractor_v1.json"
 SEED = "judge-check-hotpotqa-v1"
 N_QUESTIONS = 200
 
@@ -184,23 +183,22 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--input", type=Path, required=True, help="hotpot_dev_distractor_v1.json")
     p.add_argument("--out", type=Path, required=True)
     p.add_argument("-n", type=int, default=N_QUESTIONS)
+    p.add_argument("--source-url", required=True, help="where the source file came from")
+    p.add_argument("--source-revision", default="", help="e.g. a Hugging Face commit sha")
+    p.add_argument("--source-sha256", required=True, help="checksum of the downloaded file")
     args = p.parse_args(argv)
 
     raw = args.input.read_bytes()
-    digest = hashlib.sha256(raw).hexdigest()
-    if SOURCE_SHA256 is None:
-        print(f"WARNING: source checksum not pinned yet; got {digest}", file=sys.stderr)
-    elif digest != SOURCE_SHA256:
-        print(f"sha256 mismatch: got {digest}, expected {SOURCE_SHA256}", file=sys.stderr)
-        return 1
-
     documents, questions, stats = build_subset(json.loads(raw), args.n)
     args.out.mkdir(parents=True, exist_ok=True)
     write_jsonl(args.out / "corpus.jsonl", documents)
     write_jsonl(args.out / "questions.jsonl", questions)
     manifest = {
-        "source_url": SOURCE_URL,
-        "source_sha256": digest,
+        "source_url": args.source_url,
+        "source_revision": args.source_revision,
+        "source_sha256": args.source_sha256,
+        "original_url": ORIGINAL_URL,
+        "builder_input_sha256": hashlib.sha256(raw).hexdigest(),
         "seed": SEED,
         "builder": "backend/src/judge_check/datasets/hotpotqa.py",
         "builder_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),

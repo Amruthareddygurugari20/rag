@@ -1,12 +1,21 @@
 # Regenerates committed files that need network access to build:
 #   backend/uv.lock          (resolves CPU-only torch from download.pytorch.org)
-#   data/hotpotqa_demo/*     (downloads the official HotpotQA dev set and rebuilds the subset)
+#   data/hotpotqa_demo/*     (downloads HotpotQA dev/distractor and rebuilds the subset)
 # Run it manually from the Actions tab. It commits any changes back to the branch it ran on.
-# The subset build is deterministic, so re-running it with an unchanged source is a no-op.
+# The subset build is deterministic: the same source revision gives byte-identical files.
 name: refresh-generated
 
 on:
   workflow_dispatch:
+    inputs:
+      hf_revision:
+        description: "Hugging Face commit of hotpotqa/hotpot_qa (empty = current main)"
+        required: false
+        default: ""
+      expected_sha256:
+        description: "Expected SHA-256 of the validation parquet (empty = don't check)"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -14,7 +23,7 @@ permissions:
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v7
@@ -23,21 +32,52 @@ jobs:
         working-directory: backend
         run: uv lock
 
-      - name: Download HotpotQA dev (distractor)
-        # Downloaded data is untrusted: keep it in its own directory, outside the repo.
+      - name: Download HotpotQA dev (distractor) from Hugging Face
+        id: download
+        # The original host (curtis.ml.cmu.edu) did not accept connections when this was
+        # written; the Hugging Face copy is pinned to a commit instead (DECISIONS.md D-013).
+        # Downloaded data is untrusted: it stays in its own directory outside the repo.
+        env:
+          REPO: hotpotqa/hotpot_qa
+          REV_INPUT: ${{ inputs.hf_revision }}
+          EXPECTED: ${{ inputs.expected_sha256 }}
         run: |
-          mkdir -p "$RUNNER_TEMP/hotpot"
-          curl -fSL --connect-timeout 30 --max-time 1200 --retry 3 --retry-all-errors \
-            --progress-bar -o "$RUNNER_TEMP/hotpot/hotpot_dev_distractor_v1.json" \
-            http://curtis.ml.cmu.edu/datasets/hotpot/hotpot_dev_distractor_v1.json
-          sha256sum "$RUNNER_TEMP/hotpot/hotpot_dev_distractor_v1.json"
+          set -euo pipefail
+          D="$RUNNER_TEMP/hotpot"; mkdir -p "$D"
+          REV="$REV_INPUT"
+          if [ -z "$REV" ]; then
+            REV=$(curl -fsSL "https://huggingface.co/api/datasets/$REPO" \
+                  | python3 -c 'import json,sys; print(json.load(sys.stdin)["sha"])')
+          fi
+          echo "revision: $REV"
+          curl -fsSL "https://huggingface.co/api/datasets/$REPO/tree/$REV/distractor" > "$D/tree.json"
+          python3 -c 'import json,sys; [print(" ", f["path"]) for f in json.load(open(sys.argv[1]))]' "$D/tree.json"
+          FILE=$(python3 -c 'import json,sys; print(next(f["path"] for f in json.load(open(sys.argv[1])) if "validation" in f["path"] and f["path"].endswith(".parquet")))' "$D/tree.json")
+          URL="https://huggingface.co/datasets/$REPO/resolve/$REV/$FILE"
+          curl -fSL --connect-timeout 30 --max-time 900 --retry 3 -o "$D/validation.parquet" "$URL"
+          SHA=$(sha256sum "$D/validation.parquet" | cut -d' ' -f1)
+          echo "sha256: $SHA"
+          if [ -n "$EXPECTED" ] && [ "$SHA" != "$EXPECTED" ]; then
+            echo "::error::checksum mismatch (expected $EXPECTED)"; exit 1
+          fi
+          { echo "url=$URL"; echo "rev=$REV"; echo "sha=$SHA"; } >> "$GITHUB_OUTPUT"
+
+      - name: Convert parquet to the original JSON layout
+        run: |
+          uv run --no-project --with pyarrow -- python -I backend/scripts/hf_hotpotqa_to_json.py \
+            "$RUNNER_TEMP/hotpot/validation.parquet" "$RUNNER_TEMP/hotpot/hotpot_dev_distractor.json"
 
       - name: Build the demo subset
         # Plain stdlib Python in isolated mode (-I): nothing from the cwd or env is imported.
+        env:
+          URL: ${{ steps.download.outputs.url }}
+          REV: ${{ steps.download.outputs.rev }}
+          SHA: ${{ steps.download.outputs.sha }}
         run: |
           python3 -I backend/src/judge_check/datasets/hotpotqa.py \
-            --input "$RUNNER_TEMP/hotpot/hotpot_dev_distractor_v1.json" \
-            --out data/hotpotqa_demo
+            --input "$RUNNER_TEMP/hotpot/hotpot_dev_distractor.json" \
+            --out data/hotpotqa_demo \
+            --source-url "$URL" --source-revision "$REV" --source-sha256 "$SHA"
 
       - name: Commit changes
         run: |

@@ -145,3 +145,57 @@ class ChunkEmbedding(Base):
     # Dimension-less column so one table can hold any model; the run row records the
     # dimension and ingestion checks every vector against it (D-015).
     embedding: Mapped[Any] = mapped_column(Vector())
+
+
+# --- BM25 in SQL (D-021) -------------------------------------------------------------------
+
+
+class Bm25Stats(Base):
+    """Corpus-level BM25 statistics for one chunk set."""
+
+    __tablename__ = "bm25_stats"
+
+    chunk_set_id: Mapped[int] = mapped_column(
+        ForeignKey("chunk_set.id", ondelete="CASCADE"), primary_key=True
+    )
+    tokenizer: Mapped[str] = mapped_column(Text)
+    n_docs: Mapped[int] = mapped_column(Integer)  # N: number of chunks
+    avgdl: Mapped[float]  # mean chunk length in tokens
+    avg_idf: Mapped[float]  # mean raw IDF over all terms, used for the epsilon floor
+    epsilon: Mapped[float]
+
+
+class Bm25Doc(Base):
+    __tablename__ = "bm25_doc"
+
+    chunk_id: Mapped[int] = mapped_column(
+        ForeignKey("chunk.id", ondelete="CASCADE"), primary_key=True
+    )
+    chunk_set_id: Mapped[int] = mapped_column(
+        ForeignKey("chunk_set.id", ondelete="CASCADE"), index=True
+    )
+    length: Mapped[int] = mapped_column(Integer)  # |D|: number of tokens
+
+
+class Bm25Term(Base):
+    __tablename__ = "bm25_term"
+
+    chunk_set_id: Mapped[int] = mapped_column(
+        ForeignKey("chunk_set.id", ondelete="CASCADE"), primary_key=True
+    )
+    term: Mapped[str] = mapped_column(Text, primary_key=True)
+    df: Mapped[int] = mapped_column(Integer)  # n(t): chunks containing the term
+    idf: Mapped[float]  # effective IDF, after the epsilon floor
+
+
+class Bm25Posting(Base):
+    __tablename__ = "bm25_posting"
+
+    chunk_set_id: Mapped[int] = mapped_column(
+        ForeignKey("chunk_set.id", ondelete="CASCADE"), primary_key=True
+    )
+    term: Mapped[str] = mapped_column(Text, primary_key=True)
+    chunk_id: Mapped[int] = mapped_column(
+        ForeignKey("chunk.id", ondelete="CASCADE"), primary_key=True
+    )
+    tf: Mapped[int] = mapped_column(Integer)  # f(t, D): occurrences of the term in the chunk

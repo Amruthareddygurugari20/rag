@@ -20,6 +20,18 @@ Because of the ShareAlike term, **the files in this directory are distributed un
 4.0**, whatever licence the rest of the repository uses. If you redistribute or adapt them,
 keep this attribution and licence.
 
+### Source file
+
+The original distribution is `hotpot_dev_distractor_v1.json` from
+`http://curtis.ml.cmu.edu/datasets/hotpot/`. On 2026-10-07 that host did not accept
+connections, neither from our CI runners nor from the development environment, so the
+subset is built from the HotpotQA dataset on Hugging Face (`hotpotqa/hotpot_qa`, config
+`distractor`, split `validation`). It is pinned to a repository commit, and the parquet
+file's SHA-256 is recorded in `MANIFEST.json`.
+`backend/scripts/hf_hotpotqa_to_json.py` converts it back to the original JSON layout (a
+field-for-field mapping, documented in the script), and the builder runs on that. The same
+licence and attribution apply.
+
 ### Changes made to the original
 
 - Selected 200 of the 7,405 dev questions using the deterministic filters and seeded order
@@ -39,7 +51,7 @@ keep this attribution and licence.
 |---|---|---|
 | `corpus.jsonl` | yes | `{id, title, text, sentence_spans}`, one paragraph per line |
 | `questions.jsonl` | yes | `{id, question, reference_answer, gold_evidence[{document_id,start,end}], metadata}` |
-| `MANIFEST.json` | yes | source URL and SHA-256, seed, builder checksum, filter counts |
+| `MANIFEST.json` | yes | source URL, revision and SHA-256, seed, builder checksum, filter counts |
 | `README.md` | no | this data card |
 
 Generated files are produced by `backend/src/judge_check/datasets/hotpotqa.py` through the
