@@ -1,0 +1,39 @@
+# Local development infrastructure for judge-check.
+#
+#   docker compose up -d                    # Postgres + pgvector only
+#   docker compose --profile ollama up -d   # also run Ollama in a container
+#
+# The Python API runs on the host (see README / DECISIONS.md D-005).
+
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: judge_check
+      POSTGRES_PASSWORD: judge_check
+      POSTGRES_DB: judge_check
+    ports:
+      # 5433 on the host so we don't collide with a locally installed Postgres (D-004).
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Runs once, on first start with an empty volume: creates the test database.
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U judge_check -d judge_check"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # Optional. On macOS, prefer native Ollama (Docker can't use the Metal GPU), see D-006.
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["ollama"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+
+volumes:
+  pgdata:
+  ollama:
