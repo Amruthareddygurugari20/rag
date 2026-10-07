@@ -1340,3 +1340,69 @@ can only *withhold* a label:
 No guard result can make a variant correct on its own. `tests/test_heuristic_boundary.py` is
 widened to allow exactly one more file, `judge_check/variants/guards.py`, and a planted
 violation elsewhere under `variants/` must still fail the scan.
+
+### D-035 addendum A: type 5 is mostly entity substitution. What that costs, and how it's reported
+
+**What the corpus allows.** The strict typing (D-035) classifies the 200 demo answers as
+97 entities, 16 years, 7 numbers, 1 date and **79 untyped**. So `right_topic_wrong_detail`
+can be attempted for at most 121 questions, and about 80% of those are **entity
+substitutions**. The changed digit or date, the case this project was originally framed
+around, is barely represented.
+
+**Reported per sub-kind, never pooled.** Type 5's false-accept rate is reported separately
+for `entity`, `year`, `number` and `date`, each with its Wilson 95% interval and n. There is
+no single "type 5 FAR". "Can the judge spot a swapped name?" and "can it spot a changed
+digit?" may be different difficulties, and the per-sub-kind numbers can show it instead of
+assuming either way.
+
+**How much the small arms can say.** Interval widths are computed, not guessed (Wilson,
+scipy):
+
+| arm | n | FAR 0.12 | FAR 0.25 | FAR 0.50 |
+|---|---|---|---|---|
+| year | ≤ 16 | [0.03, 0.36] | [0.10, 0.49] | [0.28, 0.72] |
+| entity | ≤ 97 | [0.06, 0.18] (at 0.10) | [0.17, 0.34] | [0.40, 0.59] |
+
+- The **year arm is directional at best**. Its interval is 0.33–0.44 wide, so it can only
+  distinguish itself from the entity arm if the true rates differ by roughly 0.3 or more.
+  It's reported with that caveat attached.
+- The **number (7) and date (1) arms are descriptive only**. Their counts are reported,
+  with no rate claimed.
+
+**Stated limitation.** *This corpus is nearly devoid of numeric and date answers. The
+headline false-accept rate on HotpotQA does not speak to numeric near-misses*: a judge
+accepting "revenue grew 14%" when the source says 4%. Any claim about digits needs a
+corpus that has them. That's the strongest argument so far that the **second corpus should
+be fact-dense (financial or scientific text)**, not more Wikipedia, and it joins D-028's
+reason (naturally sampled negatives) as a requirement for that corpus.
+
+### D-035 addendum B: balance at the type level only, never within a type
+
+"Down-sample each group to its smallest type" (D-035, Balance) applies to the **types** within
+the accept group (1–4) and within the reject group (5–9), and **nothing finer**. It is **not**
+applied to sub-kinds within type 5 (entity/year/number/date) or within type 7
+(missing/wrong). Doing so would cut type 5 to the size of its single date answer and destroy
+the arm.
+
+Sub-kind composition is instead **reported** alongside every type-5 or type-7 number. The
+code enforces this: `variants.balance.balance_by_type` takes only a variant's `variant_type`
+as its stratum. A test plants a pool with one date and ninety entities, and fails if the
+result loses the entities.
+
+### D-035 addendum C: "2016 United States elections" is untyped, and no part of it is mutated
+
+The exploratory pass that produced the first type counts used a loose regex. It typed
+"2016 United States elections" as a *number*, which would have let a mutation change "2016"
+and leave a "wrong" answer that is merely a different election, possibly still a true fact.
+Under the strict parser it is **untyped**, so:
+- no type-5 variant is built for that question (discard reason `answer_type_unparseable`),
+  and
+- no value *inside* an untyped answer is ever mutated: type 5 replaces the whole answer
+  value or nothing.
+
+This is checked by tests, not assumed:
+- `test_vtype_is_strict` asserts `vtype("2016 United States elections") is None`, alongside
+  the other real cases ("575 acres (2.08 km²)", "729 at the 2010 census", "1861–65",
+  "early 1970s").
+- `test_untyped_answer_is_never_partially_mutated` builds a type-5 variant for that exact
+  answer and asserts it is discarded with the right reason and that no output text exists.
