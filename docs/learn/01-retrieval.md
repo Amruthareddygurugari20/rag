@@ -21,7 +21,7 @@ Three facts to remember:
 - **It's lossy.** A paragraph becomes 384 floats. Exact facts (a specific number, a rare
   name) are what gets lost first. That is why we also use BM25.
 - **It's not calibrated.** A cosine of 0.62 doesn't mean "62% relevant". Unrelated texts
-  often score 0.3 to 0.5 with this model, because all its vectors share a common
+  often score 0.3 to 0.6 with this model (the demo printout has unrelated pairs at 0.35–0.55), because all its vectors share a common
   direction. Use similarities for *ranking*, never as absolute thresholds. The script's
   passage-by-passage matrix shows this.
 - **It's model-specific.** Vectors from two models (or two versions of one model) live in

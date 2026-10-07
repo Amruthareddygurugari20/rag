@@ -23,7 +23,12 @@ from judge_check.ingest.formats import load_eval_set
 from judge_check.ingest.pipeline import build_chunk_set, embed_chunk_set, load_corpus
 from judge_check.models import Chunk, ChunkSet, Corpus, Document, Question
 from judge_check.retrieval import bm25
-from judge_check.retrieval.evaluate import gold_chunk_ids, score_rankings
+from judge_check.retrieval.evaluate import (
+    gold_chunk_ids,
+    paired_difference,
+    per_query_scores,
+    score_rankings,
+)
 from judge_check.retrieval.search import MODES, search
 
 
@@ -95,21 +100,28 @@ def cmd_search(args: argparse.Namespace) -> None:
 
 
 def cmd_eval_retrieval(args: argparse.Namespace) -> None:
-    modes = args.modes.split(",")
+    # Each run: (label, mode, use_query_instruction). The first run is the baseline that
+    # the others are compared against, question by question (paired differences).
+    runs = [(m, m, not args.no_query_instruction) for m in args.modes.split(",")]
+    if args.instruction_ablation:
+        runs.append(("dense-noinstr", "dense", False))
     # BM25-only runs don't need (or download) the embedding model.
-    embedder = get_embedder(args.model) if set(modes) != {"bm25"} else None
+    needs_model = any(mode != "bm25" for _, mode, _ in runs)
+    embedder = get_embedder(args.model) if needs_model else None
     with _session() as session:
         cs = _chunk_set(session, args.corpus, _chunking(args.chunking))
         gold = gold_chunk_ids(session, cs.id)
         questions = session.execute(
-            select(Question.id, Question.text).where(Question.corpus_id == cs.corpus_id)
+            select(Question.id, Question.text)
+            .where(Question.corpus_id == cs.corpus_id)
+            .order_by(Question.id)
         ).all()
         if args.limit:
             questions = questions[: args.limit]
         print(f"{len(questions)} questions, chunk set {cs.label}, k={args.k}")
-        print(f"{'mode':<8} {'recall@k':>9} {'complete@k':>11} {'MRR':>7} {'s/query':>8}")
-        results = {}
-        for mode in modes:
+        print(f"{'run':<14} {'recall@k':>9} {'complete@k':>11} {'MRR@k':>7} {'s/query':>8}")
+        results, per_run = {}, {}
+        for label, mode, use_instr in runs:
             t0 = time.perf_counter()
             rankings = {
                 qid: [
@@ -121,7 +133,7 @@ def cmd_eval_retrieval(args: argparse.Namespace) -> None:
                         mode=mode,  # type: ignore[arg-type]
                         k=args.k,
                         embedder=embedder,
-                        use_query_instruction=not args.no_query_instruction,
+                        use_query_instruction=use_instr,
                         bm25_k1=args.k1,
                         bm25_b=args.b,
                     )
@@ -130,8 +142,23 @@ def cmd_eval_retrieval(args: argparse.Namespace) -> None:
             }
             dt = (time.perf_counter() - t0) / len(questions)
             m = score_rankings(rankings, gold, args.k)
-            results[mode] = m.__dict__
-            print(f"{mode:<8} {m.recall:>9.3f} {m.complete:>11.3f} {m.mrr:>7.3f} {dt:>8.3f}")
+            per_run[label] = per_query_scores(rankings, gold, args.k)
+            results[label] = m.__dict__
+            print(f"{label:<14} {m.recall:>9.3f} {m.complete:>11.3f} {m.mrr:>7.3f} {dt:>8.3f}")
+
+        base = runs[0][0]
+        if len(runs) > 1:
+            print(f"\npaired differences vs {base} (same {len(questions)} questions; z = diff/SE)")
+            qids = [qid for qid, _ in questions]
+            for label, _, _ in runs[1:]:
+                cells = []
+                for metric in ("recall", "complete", "rr"):
+                    a = [getattr(per_run[base][q], metric) for q in qids]
+                    b = [getattr(per_run[label][q], metric) for q in qids]
+                    d, se = paired_difference(a, b)
+                    z = d / se if se else float("nan")
+                    cells.append(f"{metric:>8} {d:+.3f} (SE {se:.3f}, z {z:+.1f})")
+                print(f"  {label:<14}" + "  ".join(cells))
         if args.json:
             print(json.dumps(results, indent=2))
 
@@ -167,6 +194,11 @@ def main(argv: list[str] | None = None) -> None:
     e.add_argument("--no-query-instruction", action="store_true")
     e.add_argument("--k1", type=float, default=bm25.K1, help="BM25 tf saturation")
     e.add_argument("--b", type=float, default=bm25.B, help="BM25 length normalisation")
+    e.add_argument(
+        "--instruction-ablation",
+        action="store_true",
+        help="also run dense without the query instruction, paired against the first run",
+    )
     e.add_argument("--json", action="store_true")
     e.set_defaults(func=cmd_eval_retrieval)
 

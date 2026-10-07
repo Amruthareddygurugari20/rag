@@ -45,7 +45,6 @@ jobs:
         run: |
           uv run alembic upgrade head
           uv run judge-check ingest ../data/hotpotqa_demo --name hotpotqa_demo --replace
-          uv run judge-check eval-retrieval --corpus hotpotqa_demo -k 5
-          uv run judge-check eval-retrieval --corpus hotpotqa_demo -k 5 --no-query-instruction
+          uv run judge-check eval-retrieval --corpus hotpotqa_demo -k 5 --instruction-ablation
           uv run judge-check search "$(head -1 ../data/hotpotqa_demo/questions.jsonl | python3 -c 'import json,sys; print(json.load(sys.stdin)["question"])')" --corpus hotpotqa_demo --compare
           uv run python scripts/show_similarities.py

@@ -58,3 +58,16 @@ def test_check_unit_norm() -> None:
     assert check_unit_norm(v) is v
     with pytest.raises(ValueError, match="not unit-normalised"):
         check_unit_norm(np.array([[3.0, 4.0]]))
+
+
+def test_paired_difference() -> None:
+    from judge_check.retrieval.evaluate import paired_difference
+
+    a = [0.5, 1.0, 0.0, 1.0]
+    b = [1.0, 1.0, 0.5, 1.0]  # b - a = [0.5, 0, 0.5, 0]
+    d, se = paired_difference(a, b)
+    assert d == pytest.approx(0.25)
+    # sample SD of [0.5, 0, 0.5, 0] is 0.2887; SE = 0.2887 / 2
+    assert se == pytest.approx(0.288675 / 2, rel=1e-5)
+    with pytest.raises(ValueError):
+        paired_difference([1.0], [1.0])

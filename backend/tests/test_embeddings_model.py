@@ -12,6 +12,7 @@ import pytest
 
 from judge_check.datasets.demo import chunk_in_memory, gold_indices, load_demo
 from judge_check.embeddings import BGE_QUERY_INSTRUCTION, DEFAULT_MODEL
+from judge_check.retrieval.evaluate import paired_difference
 
 pytestmark = pytest.mark.model
 
@@ -80,6 +81,17 @@ def test_query_instruction_ablation_on_demo_corpus(embedder) -> None:
         results[label]["mean_sim_gold"] = float(sims[gold_mask].mean())
         results[label]["mean_sim_other"] = float(sims[~gold_mask].mean())
 
+    # Paired over the same questions: per-question reciprocal ranks with vs without.
+    rr = {}
+    for label, use in [("with", True), ("without", False)]:
+        sims = embedder.embed_queries(texts, use_instruction=use) @ passages.T
+        order = np.argsort(-sims, axis=1, kind="stable")
+        rr[label] = [
+            1.0 / next(i for i, c in enumerate(row.tolist(), 1) if c in g)
+            for row, g in zip(order, gold, strict=True)
+        ]
+    d, se = paired_difference(rr["without"], rr["with"])
+    results["paired_mrr_with_minus_without"] = {"diff": d, "se": se, "z": d / se}
     print("\nquery-instruction ablation:", json.dumps(results, indent=2))
     w, wo = results["with_instruction"], results["without_instruction"]
     # Sanity: retrieval works at all in both settings.
