@@ -2,7 +2,15 @@
 
 import pytest
 
-from judge_check.retrieval.sweep import Candidates, crossfit, fuse, scores_at, two_folds
+from judge_check.retrieval.sweep import (
+    Candidates,
+    crossfit,
+    fuse,
+    percentile,
+    repeated_crossfit,
+    scores_at,
+    two_folds,
+)
 
 
 def test_alpha_extremes_reproduce_each_retriever() -> None:
@@ -57,3 +65,23 @@ def test_crossfit_finds_dense_when_dense_is_always_right() -> None:
     cf = crossfit(cands, gold, "rrf", k=1)
     assert cf.alpha_chosen_on_a >= 0.5 and cf.alpha_chosen_on_b >= 0.5
     assert sum(s.rr for s in cf.held_out.values()) == pytest.approx(8.0)
+
+
+def test_repeated_crossfit_is_reproducible_and_sized() -> None:
+    cands = {
+        q: Candidates(dense=[(q, 0.9), (50 + q, 0.2)], bm25=[(50 + q, 30.0), (q, 2.0)])
+        for q in range(12)
+    }
+    gold = {q: {q} for q in range(12)}
+    a = repeated_crossfit(cands, gold, "rrf", k=1, n_repeats=7, seed=3)
+    b = repeated_crossfit(cands, gold, "rrf", k=1, n_repeats=7, seed=3)
+    assert a == b
+    assert len(a.alphas_chosen) == 14 and len(a.delta_vs_dense) == 7
+    # Dense is always right here, so every partition matches dense exactly.
+    assert all(d == pytest.approx(0.0) for d in a.delta_vs_dense)
+
+
+def test_percentile() -> None:
+    assert percentile([3, 1, 2, 4], 50) == pytest.approx(2.5)
+    assert percentile([5], 97.5) == 5
+    assert percentile(list(range(101)), 2.5) == pytest.approx(2.5)

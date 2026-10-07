@@ -385,6 +385,36 @@ CI prints the numbers. The BGE v1.5 model card itself says the instruction matte
 v1.5 than for v1.0, so the size of the effect is an empirical question we answer on our own
 data.
 
+### Result: a measured null (CI run 9, demo corpus, n = 200, paired)
+
+| | with prefix | without | paired Δ (with − without) |
+|---|---|---|---|
+| recall@5 | 0.745 | 0.745 | 0.000 (SE 0.007) |
+| complete@5 | 0.515 | 0.520 | −0.005 (SE 0.015) |
+| MRR (full ranking) | 0.849 | 0.840 | +0.009 (SE 0.005, z 1.6) |
+| mean cosine to gold / to other chunks | 0.683 / 0.368 | 0.693 / 0.376 | gap 0.315 vs 0.317 |
+
+The prefix lowers all similarities slightly and leaves the separation between gold and
+non-gold chunks unchanged. No retrieval difference is detectable at n = 200.
+
+**What BAAI says**, verbatim. From the FlagEmbedding repository (BAAI's code for the BGE
+models), `research/baai_general_embedding/README.md`, FAQ "When does the query instruction
+need to be used", at commit `fd1a2bdf69488ffebe0327999d4400d8c8058a0b`:
+
+> For the `bge-*-v1.5`, we improve its retrieval ability when not using instruction.
+> No instruction only has a slight degradation in retrieval performance compared with using instruction.
+> So you can generate embedding without instruction in all cases for convenience.
+>
+> For a retrieval task that uses short queries to find long related documents,
+> it is recommended to add instructions for these short queries.
+> **The best method to decide whether to add instructions for queries is choosing the setting that achieves better performance on your task.**
+
+**Reading.** The null agrees with the vendor's own hedge. HotpotQA questions are long,
+well-formed sentences, not the "short queries" the instruction is recommended for. We keep
+the prefix (it's how the model was trained, it costs nothing, and the point estimate leans
+its way), and the null is recorded as a result. The prediction going in was a measurable
+drop without the prefix. It was wrong, and that is what the measurement is for.
+
 ---
 
 ## D-018: Normalise on write; search with pgvector's inner-product operator `<#>`

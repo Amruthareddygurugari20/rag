@@ -218,6 +218,23 @@ def cmd_fusion_sweep(args: argparse.Namespace) -> None:
             + "  ".join(cells)
         )
 
+    print(
+        f"\nRepeated cross-fitting: {args.repeats} random 2-fold partitions (seed {args.seed})."
+        "\nThe spread shows how stable the alpha *choice* is; it is not a population CI"
+        " (every partition reuses the same questions). Paired SE above is the sampling error."
+    )
+    for method in ("rrf", "linear"):
+        rc = sweep.repeated_crossfit(cands, gold, method, k, args.repeats, args.seed)
+        d = rc.delta_vs_dense
+        share_better = sum(x > 0 for x in d) / len(d)
+        alpha_counts = {a: rc.alphas_chosen.count(a) for a in sorted(set(rc.alphas_chosen))}
+        print(
+            f"  {method:>6}: dMRR vs dense median {sweep.percentile(d, 50):+.3f}, "
+            f"2.5-97.5% [{sweep.percentile(d, 2.5):+.3f}, {sweep.percentile(d, 97.5):+.3f}], "
+            f"partitions better than dense {share_better:.0%}"
+        )
+        print(f"          alpha chosen (count over {len(rc.alphas_chosen)} folds): {alpha_counts}")
+
 
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="judge-check")
@@ -264,6 +281,8 @@ def main(argv: list[str] | None = None) -> None:
     f.add_argument("--corpus", required=True)
     f.add_argument("-k", type=int, default=5)
     f.add_argument("--candidates", type=int, default=100)
+    f.add_argument("--repeats", type=int, default=200, help="random 2-fold partitions")
+    f.add_argument("--seed", type=int, default=20261007)
     f.set_defaults(func=cmd_fusion_sweep)
 
     args = p.parse_args(argv)
