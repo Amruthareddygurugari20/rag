@@ -46,5 +46,17 @@ jobs:
           uv run alembic upgrade head
           uv run judge-check ingest ../data/hotpotqa_demo --name hotpotqa_demo --replace
           uv run judge-check eval-retrieval --corpus hotpotqa_demo -k 5 --instruction-ablation
+          uv run judge-check fusion-sweep --corpus hotpotqa_demo -k 5
           uv run judge-check search "$(head -1 ../data/hotpotqa_demo/questions.jsonl | python3 -c 'import json,sys; print(json.load(sys.stdin)["question"])')" --corpus hotpotqa_demo --compare
           uv run python scripts/show_similarities.py
+
+      # The model card's own guidance on the query instruction, verbatim and pinned to the
+      # revision we read it at (quoted in DECISIONS.md D-017).
+      - name: BGE model card, query-instruction FAQ
+        run: |
+          REV=$(curl -fsSL https://huggingface.co/api/models/BAAI/bge-small-en-v1.5 \
+                | python3 -c 'import json,sys; print(json.load(sys.stdin)["sha"])')
+          echo "BAAI/bge-small-en-v1.5 model card at revision $REV"
+          curl -fsSL "https://huggingface.co/BAAI/bge-small-en-v1.5/raw/$REV/README.md" \
+            | grep -n -i -A12 "When does the query instruction need to be used" \
+            || echo "FAQ heading not found in this revision of the model card"

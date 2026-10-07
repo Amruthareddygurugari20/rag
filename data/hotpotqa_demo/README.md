@@ -132,8 +132,15 @@ Under simple random sampling the expected number of comparison questions is 29.8
 draw under-represents comparison questions by roughly two standard deviations. It is
 chance, not a bug, and the seed was fixed before the draw was seen. We deliberately did
 **not** re-draw with another seed: choosing a seed after seeing its outcome would make the
-sample depend on what we wanted to see. Per-type numbers should be reported separately,
-and comparison-question results at n = 20 carry wide intervals.
+sample depend on what we wanted to see.
+
+**Stated limitation: per-type claims are underpowered.** With 20 comparison questions, a
+proportion such as recall@5 ≈ 0.75 has a 95% interval of about ±0.19 (±0.06 for the full
+200). Detecting a bridge-vs-comparison difference with 80% power at α = 0.05 would need a
+true gap of roughly 0.29. **No per-type retrieval or judge claim should be made from this
+subset.** Report pooled numbers, and give per-type numbers only as description. If
+per-type claims are needed later, build a separate stratified sample, declared as such
+before it's drawn, rather than re-drawing this one.
 
 ## Known label noise in HotpotQA
 

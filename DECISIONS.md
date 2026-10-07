@@ -283,6 +283,13 @@ split looks nice makes the sample depend on the outcome. Report per-type results
 separately. The sample represents the *filtered* population, not HotpotQA dev as a whole:
 yes/no questions, mostly comparison type, are excluded.
 
+**Stated limitation: power.** n = 20 comparison questions. A proportion near 0.75 has a 95%
+interval of about ±0.19 at n = 20 (±0.06 at n = 200), and the smallest bridge-vs-comparison
+gap detectable with 80% power is roughly 0.29. So this subset supports **pooled** claims
+only. Per-type numbers are description, not findings. If per-type claims are wanted,
+we'll draw a deliberately stratified sample, declared before it's drawn. We won't re-draw
+this one.
+
 **Known label noise** (detail and citations in the data card):
 - Many questions have single-hop shortcuts (Min et al. 2019; Jiang & Bansal 2019; Trivedi
   et al. 2020).

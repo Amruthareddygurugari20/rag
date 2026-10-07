@@ -22,7 +22,7 @@ from judge_check.ingest.chunking import DEFAULT_CHUNKING, ChunkingConfig, parse_
 from judge_check.ingest.formats import load_eval_set
 from judge_check.ingest.pipeline import build_chunk_set, embed_chunk_set, load_corpus
 from judge_check.models import Chunk, ChunkSet, Corpus, Document, Question
-from judge_check.retrieval import bm25
+from judge_check.retrieval import bm25, sweep
 from judge_check.retrieval.evaluate import (
     gold_chunk_ids,
     paired_difference,
@@ -30,6 +30,7 @@ from judge_check.retrieval.evaluate import (
     score_rankings,
 )
 from judge_check.retrieval.search import MODES, search
+from judge_check.retrieval.sweep import Candidates
 
 
 def _session() -> Session:
@@ -163,6 +164,61 @@ def cmd_eval_retrieval(args: argparse.Namespace) -> None:
             print(json.dumps(results, indent=2))
 
 
+def cmd_fusion_sweep(args: argparse.Namespace) -> None:
+    """Dense/BM25 fusion weight sweep, with a cross-fitted (held-out) result (D-028)."""
+    embedder = get_embedder(args.model)
+    with _session() as session:
+        cs = _chunk_set(session, args.corpus, _chunking(args.chunking))
+        gold = gold_chunk_ids(session, cs.id)
+        questions = session.execute(
+            select(Question.id, Question.text)
+            .where(Question.corpus_id == cs.corpus_id)
+            .order_by(Question.id)
+        ).all()
+        cands = {}
+        for qid, text in questions:
+            dense = search(session, cs.id, text, mode="dense", k=args.candidates, embedder=embedder)
+            lexical = search(session, cs.id, text, mode="bm25", k=args.candidates)
+            cands[qid] = Candidates(
+                dense=[(h.chunk_id, h.score) for h in dense],
+                bm25=[(h.chunk_id, h.score) for h in lexical],
+            )
+    qids = [q for q, _ in questions]
+    k = args.k
+    dense_only = sweep.scores_at(cands, gold, "rrf", 1.0, k)
+
+    print(f"{len(qids)} questions, chunk set {cs.label}, k={k}, {args.candidates} candidates")
+    print("alpha = weight on dense (BM25 gets 1 - alpha); 1.0 = dense only, 0.5 = equal RRF")
+    print("Descriptive curve over all questions. Do NOT pick the best row from it (see below).")
+    for method in ("rrf", "linear"):
+        print(f"\n{method:>6}  alpha  recall@k  complete@k  MRR@k   dMRR vs dense (SE)")
+        for a in sweep.ALPHAS:
+            sc = sweep.scores_at(cands, gold, method, a, k)
+            d, se = paired_difference([dense_only[q].rr for q in qids], [sc[q].rr for q in qids])
+            print(
+                f"{'':>6}  {a:>5.1f}  {sweep.mean(sc, 'recall', qids):>8.3f}  "
+                f"{sweep.mean(sc, 'complete', qids):>10.3f}  {sweep.mean(sc, 'rr', qids):>5.3f}"
+                f"   {d:+.3f} ({se:.3f})"
+            )
+
+    print("\nCross-fitted (alpha chosen on one half by MRR@k, scored on the other half):")
+    for method in ("rrf", "linear"):
+        cf = sweep.crossfit(cands, gold, method, k)
+        cells = []
+        for metric in ("recall", "complete", "rr"):
+            d, se = paired_difference(
+                [getattr(dense_only[q], metric) for q in qids],
+                [getattr(cf.held_out[q], metric) for q in qids],
+            )
+            held = sweep.mean(cf.held_out, metric, qids)
+            z = d / se if se else 0.0
+            cells.append(f"{metric} {held:.3f} (vs dense {d:+.3f}, SE {se:.3f}, z {z:+.1f})")
+        print(
+            f"  {method:>6}: alpha chosen {cf.alpha_chosen_on_a} / {cf.alpha_chosen_on_b}  "
+            + "  ".join(cells)
+        )
+
+
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="judge-check")
     sub = p.add_subparsers(required=True)
@@ -201,6 +257,14 @@ def main(argv: list[str] | None = None) -> None:
     )
     e.add_argument("--json", action="store_true")
     e.set_defaults(func=cmd_eval_retrieval)
+
+    f = sub.add_parser(
+        "fusion-sweep", parents=[common], help="dense/BM25 fusion weight sweep, cross-fitted"
+    )
+    f.add_argument("--corpus", required=True)
+    f.add_argument("-k", type=int, default=5)
+    f.add_argument("--candidates", type=int, default=100)
+    f.set_defaults(func=cmd_fusion_sweep)
 
     args = p.parse_args(argv)
     args.func(args)
