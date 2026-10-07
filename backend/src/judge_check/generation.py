@@ -166,3 +166,48 @@ def generate_answer(
     session.add(row)
     session.flush()
     return row
+
+
+@dataclass(frozen=True)
+class ExclusionRow:
+    """How many generations per exact model version can't become variants (D-032).
+
+    Parse failures are unusable outputs, not wrong answers: they're excluded from the
+    variant pool, and this rate is reported per model as a selection-bias statement. If a
+    generator fails more on hard questions, the surviving pool skews easy. `unanswerable`
+    is reported alongside: it's a valid output, but if a later stage keeps only answerable
+    generations, that's a second filter of the same kind.
+    """
+
+    model_version: str
+    total: int
+    parse_failures: int
+    unanswerable: int
+
+    @property
+    def model_requested_tag(self) -> str:
+        # model_version is "tag@digest" for Ollama, "model+fingerprint" for Azure.
+        return self.model_version.split("@", 1)[0].split("+", 1)[0]
+
+    @property
+    def excluded_rate(self) -> float:
+        return self.parse_failures / self.total if self.total else 0.0
+
+
+def exclusion_report(session: Session, corpus_id: int | None = None) -> list[ExclusionRow]:
+    from sqlalchemy import case, func
+
+    q = select(
+        GeneratedAnswer.model_version,
+        func.count(),
+        func.count(GeneratedAnswer.parse_error),
+        func.sum(case((GeneratedAnswer.answerable.is_(False), 1), else_=0)),
+    ).group_by(GeneratedAnswer.model_version)
+    if corpus_id is not None:
+        q = q.join(Question, Question.id == GeneratedAnswer.question_id).where(
+            Question.corpus_id == corpus_id
+        )
+    return [
+        ExclusionRow(mv, total, failures, int(unans or 0))
+        for mv, total, failures, unans in session.execute(q.order_by(GeneratedAnswer.model_version))
+    ]

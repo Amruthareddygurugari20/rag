@@ -133,3 +133,24 @@ def test_unparseable_output_is_stored_as_a_failure(db_session: Session, setup) -
     assert "not shown" in row.parse_error and row.answer is None
     assert row.output_text == bad  # raw output kept for audit
     assert db_session.scalar(select(GeneratedAnswer.id).where(GeneratedAnswer.id == row.id))
+
+
+@pytest.mark.db
+def test_exclusion_report_counts_per_model_version(db_session: Session, setup) -> None:
+    from judge_check.generation import exclusion_report
+
+    cs, emb, q1 = setup
+    generate_answer(db_session, ScriptedClient(), q1.id, cs.id, emb, k=7)  # ok
+    bad = json.dumps({"answer": "x", "citations": ["C42"], "answerable": True})
+    generate_answer(db_session, ScriptedClient(bad), q1.id, cs.id, emb, k=3)  # failure
+    unans = json.dumps({"answer": "Not stated.", "citations": [], "answerable": False})
+    generate_answer(db_session, ScriptedClient(unans), q1.id, cs.id, emb, k=3)
+    [row] = exclusion_report(db_session, cs.corpus_id)
+    assert (row.model_version, row.total, row.parse_failures, row.unanswerable) == (
+        "fake-llm@sha256:feed",
+        3,
+        1,
+        1,
+    )
+    assert row.excluded_rate == pytest.approx(1 / 3)
+    assert row.model_requested_tag == "fake-llm"

@@ -21,8 +21,12 @@ class Settings(BaseSettings):
         "postgresql+psycopg://judge_check:judge_check@localhost:5433/judge_check_test"
     )
     ollama_base_url: str = "http://localhost:11434"
-    # Default generation model (stage 2): small enough for CPU, good enough to cite.
-    generation_model: str = "qwen2.5:3b"
+    # Default generation model (stage 2). 7B: the smallest size we expect to produce
+    # plausible RAG answers; generated answers only matter if they are realistic (D-032).
+    generation_model: str = "qwen2.5:7b"
+    # Generators whose answers may enter the eval set (via human adjudication, D-032).
+    # Smoke-test models (generation_policy.SMOKE_TEST_MODELS) are refused regardless.
+    eval_generator_models: list[str] = ["qwen2.5:7b", "llama3.1:8b"]
     # Optional Azure OpenAI provider (D-011, D-029). Unset = not available.
     azure_openai_endpoint: str = ""
     azure_openai_api_key: str = ""

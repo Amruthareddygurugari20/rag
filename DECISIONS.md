@@ -1039,3 +1039,76 @@ the comparison in (3) can't be made. How many to include gets decided in stage 5
 same power reasoning as D-013: the gap is only reportable if both strata are large enough
 for their FRR intervals to be useful.
 
+
+### D-032 addendum A: the provenance comparison is only valid for competent generators
+
+*Written before stage 3 depends on it.*
+
+Generated answers are in the design to bring **realistic, fluent** RAG output into the
+evaluation set. A generator too weak to produce plausible answers inverts the measurement:
+its answers are trivially rejectable, so the human-labelled arm looks *easier* for judges
+than the constructed arm, and the realism gap comes out **backwards**, with nothing in the
+numbers to show why.
+
+- **The provenance comparison (point 3 above) is only valid for generations from a model
+  whose output is plausible.** It is reported per generator `model_version`, never pooled
+  across generators of different capability.
+- **Enforced by an explicit allowlist**, `eval_generator_models` (default `qwen2.5:7b`,
+  `llama3.1:8b`), checked by `generation_policy.is_eval_eligible`. Stage 5's adjudication
+  queue must draw generated answers only through this gate.
+- **`qwen2.5:0.5b` is a smoke test.** CI uses it to prove the Ollama path works end to end.
+  It's on a hard deny-list (`SMOKE_TEST_MODELS`) that no allowlist entry overrides, and
+  tests pin that.
+- The default `generation_model` is now `qwen2.5:7b`, and a test checks the default is
+  eligible.
+- **Plausibility is checked, not assumed.** Being on the allowlist is necessary, not
+  sufficient. In stage 5 reviewers can mark an output "implausible/broken", separately from
+  "correct/incorrect". If a generator's implausible rate is high, its arm is reported as
+  invalid for the provenance comparison, not averaged in.
+
+### D-032 addendum B: parse failures are recorded, excluded from variants, and reported
+
+A parse failure (D-030's strict parser) is an **unusable output, not a wrong answer**.
+Treating it as wrong would put garbage into the "should be rejected" pool. Letting it vanish
+silently biases the pool: if a generator fails more often on hard questions, the surviving
+answers skew towards questions it handled cleanly, which are the easier ones.
+
+- Failures are **stored** (raw output plus reason), **excluded** from the variant pool, and
+  their rate is **reported per exact model version** (`generation.exclusion_report`, also
+  printed by `judge-check generate`) as an explicit selection-bias statement next to any
+  result that uses generated answers.
+- `answerable = false` outputs are valid and kept, and their count is reported alongside.
+  If a later stage keeps only answerable generations, that's a second filter of the same
+  kind and is reported the same way.
+- When stage 6 has generated-answer results, it reports the exclusion rate **by HotpotQA
+  question type and by retrieval success** (were the gold chunks retrieved?) for each
+  generator. A failure rate that differs across those strata is the bias, made visible.
+
+---
+
+## D-033: Heuristics are physically walled off from scoring
+
+**Stage:** 2 · **Status:** binding
+
+**Decision.** "Reference string appears in the answer" and "the answer cites a gold chunk"
+live in `judge_check/diagnostics.py`, under a docstring headed *HEURISTICS. NOT CORRECTNESS
+LABELS.*
+- They are computed on the fly for human-readable summaries and **never stored**. No table
+  has a column for them, and a test fails if one appears with a heuristic-sounding name.
+- `tests/test_heuristic_boundary.py` parses the source tree and fails CI if any module
+  other than `cli.py` (display only) imports `judge_check.diagnostics`, or if
+  `contains_answer` is used anywhere except the HotpotQA builder (where it's a data filter,
+  D-013) and `diagnostics.py`.
+- Both scans are also run against **planted violations**, with the exact offending lines
+  asserted, so a scan that silently matches nothing can't pass.
+
+**Why.** These signals are free and almost-correctness, and they are wrong often enough to
+be dangerous:
+- a correct paraphrase fails "reference in answer";
+- an answer that cites the gold chunk and then states something false passes "cites gold".
+
+In stage 6 something will reach for them as a label: a quick filter, a sanity check, a
+fallback when adjudication is thin. Documentation alone doesn't prevent that; this project
+already found its own teaching doc contradicting the data (stage 1, `01-retrieval.md` §5).
+So the boundary is enforced the same way as the single call path (D-031): by a test that
+reads the code.

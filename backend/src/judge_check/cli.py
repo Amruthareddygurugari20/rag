@@ -243,8 +243,9 @@ def cmd_generate(args: argparse.Namespace) -> None:
     The summary's 'reference in answer' and 'cites gold' columns are descriptive
     heuristics. They are NOT correctness labels and are never used as such (D-000, D-032).
     """
-    from judge_check.datasets.hotpotqa import contains_answer
-    from judge_check.generation import generate_answer
+    from judge_check.diagnostics import cites_gold, reference_in_answer
+    from judge_check.generation import exclusion_report, generate_answer
+    from judge_check.generation_policy import is_eval_eligible
     from judge_check.llm.factory import make_client
 
     client = make_client(args.provider, args.model or get_settings().generation_model)
@@ -270,8 +271,8 @@ def cmd_generate(args: argparse.Namespace) -> None:
             if row.parse_error is None:
                 n_ok += 1
                 n_unanswerable += not row.answerable
-                n_contains += contains_answer(ref, row.answer)
-                n_cites_gold += bool(set(row.cited_chunk_ids) & gold.get(qid, set()))
+                n_contains += reference_in_answer(ref, row.answer)
+                n_cites_gold += cites_gold(row.cited_chunk_ids, gold.get(qid, set()))
             if args.verbose:
                 print(f"[{i}/{len(questions)}] {status:<14} {row.latency_ms:>6} ms  "
                       f"{(row.answer or row.output_text)[:90]!r}")  # fmt: skip
@@ -279,6 +280,14 @@ def cmd_generate(args: argparse.Namespace) -> None:
         print(f"\n{n} answers from {', '.join(sorted(versions))}")
         print(f"  parsed OK              {n_ok}/{n}  (failures are stored with their reason)")
         print(f"  declared unanswerable  {n_unanswerable}/{n_ok}")
+        print("\n  Exclusion from the variant pool, per exact model version (D-032):")
+        for r in exclusion_report(session, cs.corpus_id):
+            print(
+                f"    {r.model_version}: {r.parse_failures}/{r.total} parse failures "
+                f"({r.excluded_rate:.0%}) excluded; {r.unanswerable} declared unanswerable"
+            )
+            if not is_eval_eligible(r.model_requested_tag, get_settings().eval_generator_models):
+                print("      not an eval-eligible generator (smoke test / not allowlisted)")
         print("  Heuristics only, NOT correctness labels:")
         print(f"    reference string in answer   {n_contains}/{n_ok}")
         print(f"    cites >= 1 gold chunk        {n_cites_gold}/{n_ok}")
