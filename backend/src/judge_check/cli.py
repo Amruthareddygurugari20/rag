@@ -236,6 +236,20 @@ def cmd_fusion_sweep(args: argparse.Namespace) -> None:
         print(f"          alpha chosen (count over {len(rc.alphas_chosen)} folds): {alpha_counts}")
 
 
+def cmd_prompts(args: argparse.Namespace) -> None:
+    from judge_check.prompts import add_new_prompts_to_lock, all_prompts, lock_problems
+
+    if args.action == "lock":
+        added = add_new_prompts_to_lock()
+        print("locked: " + (", ".join(added) if added else "nothing new"))
+    problems = lock_problems()
+    for key, p in sorted(all_prompts().items()):
+        print(f"{key:<28} {p.kind:<11} {p.sha256[:12]}")
+    if problems:
+        print("\n".join(["", "PROBLEMS:", *problems]))
+        sys.exit(1)
+
+
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="judge-check")
     sub = p.add_subparsers(required=True)
@@ -284,6 +298,10 @@ def main(argv: list[str] | None = None) -> None:
     f.add_argument("--repeats", type=int, default=200, help="random 2-fold partitions")
     f.add_argument("--seed", type=int, default=20261007)
     f.set_defaults(func=cmd_fusion_sweep)
+
+    pr = sub.add_parser("prompts", help="list prompts; `lock` releases new versions")
+    pr.add_argument("action", choices=["check", "lock"], nargs="?", default="check")
+    pr.set_defaults(func=cmd_prompts)
 
     args = p.parse_args(argv)
     args.func(args)

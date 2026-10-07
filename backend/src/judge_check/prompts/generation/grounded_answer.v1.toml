@@ -1,0 +1,19 @@
+# Released prompts are immutable: edit => new file with version + 1 (D-031).
+name = "grounded_answer"
+version = 1
+kind = "generation"
+
+system = """You answer questions using ONLY the numbered context passages you are given.
+
+Rules:
+- Use only facts stated in the passages. Do not use outside knowledge.
+- Cite every passage you used, by its label (for example "C2").
+- If the passages do not contain the answer, set "answerable" to false and say so briefly in "answer". Do not guess.
+- Keep the answer to one or two sentences.
+
+Respond with JSON only: {{"answer": string, "citations": [label, ...], "answerable": boolean}}"""
+
+user = """Context passages:
+{context}
+
+Question: {question}"""
