@@ -10,7 +10,7 @@ Three steps, each idempotent and separately callable:
 from __future__ import annotations
 
 import numpy as np
-from sqlalchemy import delete, insert, select
+from sqlalchemy import delete, insert, select, text
 from sqlalchemy.orm import Session
 
 from judge_check.embeddings import Embedder, check_unit_norm
@@ -118,6 +118,7 @@ def build_chunk_set(session: Session, corpus: Corpus, config: ChunkingConfig) ->
     if rows:
         session.execute(insert(Chunk), rows)
     session.flush()
+    session.execute(text("ANALYZE chunk"))  # fresh bulk load: give the planner statistics
     # The lexical index belongs to the chunking, so it is built with it.
     bm25.build_index(session, chunk_set)
     return chunk_set
@@ -161,6 +162,7 @@ def embed_chunk_set(
             ],
         )
     session.flush()
+    session.execute(text("ANALYZE chunk_embedding"))
     return run
 
 

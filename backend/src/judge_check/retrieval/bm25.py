@@ -61,6 +61,11 @@ def build_index(session: Session, chunk_set: ChunkSet, epsilon: float = EPSILON)
     session.execute(insert(Bm25Doc), docs)
     if postings:
         session.execute(insert(Bm25Posting), postings)
+    # Planner statistics, *before* aggregating. Freshly bulk-loaded tables have none until
+    # autovacuum gets to them, and the planner then assumes ~1 row: on the demo corpus that
+    # turned the df/IDF aggregation into a nested loop taking 31 s instead of 0.11 s
+    # (measured; EXPLAIN plans in DECISIONS.md D-027). ANALYZE may run inside a transaction.
+    session.execute(text("ANALYZE bm25_doc, bm25_posting"))
 
     params = {"cs": cs, "eps": epsilon}
     # Document frequency and raw IDF for every term.
@@ -103,6 +108,7 @@ def build_index(session: Session, chunk_set: ChunkSet, epsilon: float = EPSILON)
         ),
         params,
     )
+    session.execute(text("ANALYZE bm25_term, bm25_stats"))
     session.flush()
     return session.get(Bm25Stats, cs)
 
@@ -169,7 +175,9 @@ def explain(
     rows = session.execute(
         text(
             """
-            WITH q(term) AS (SELECT unnest(CAST(:terms AS text[])))
+            WITH q(term, pos) AS (
+                SELECT * FROM unnest(CAST(:terms AS text[])) WITH ORDINALITY
+            )
             SELECT q.term, t.df, t.idf, coalesce(p.tf, 0) AS tf, d.length, s.avgdl,
                    coalesce(t.idf * p.tf * (:k1 + 1)
                             / (p.tf + :k1 * (1 - :b + :b * d.length / s.avgdl)), 0) AS c
@@ -179,6 +187,7 @@ def explain(
             LEFT JOIN bm25_term t ON t.chunk_set_id = :cs AND t.term = q.term
             LEFT JOIN bm25_posting p
                    ON p.chunk_set_id = :cs AND p.term = q.term AND p.chunk_id = :chunk
+            ORDER BY q.pos  -- query-term order; without it, row order depends on the plan
             """
         ),
         {"terms": tokenize(query), "cs": chunk_set_id, "chunk": chunk_id, "k1": k1, "b": b},

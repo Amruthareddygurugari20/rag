@@ -212,10 +212,12 @@ or stdlib features. Newer interpreters are covered by local development (current
 
 **Stage:** 1
 
-**Decision.** `data/hotpotqa_demo/` holds 200 questions from `hotpot_dev_distractor_v1.json`
-and all paragraphs in their contexts, pooled into one corpus. It is built by a
-deterministic, stdlib-only script (`judge_check/datasets/hotpotqa.py`) from the official
-file, whose SHA-256 is recorded in `MANIFEST.json`.
+**Decision.** `data/hotpotqa_demo/` holds 200 questions from the HotpotQA dev set
+(distractor setting) and all paragraphs in their contexts, pooled into one corpus (1,995
+paragraphs). It is built by a deterministic, stdlib-only script
+(`judge_check/datasets/hotpotqa.py`) from the **Hugging Face copy** of the dataset, not
+from the official file. See "Provenance" below for exactly what that does and doesn't
+establish.
 
 **Why an external dataset and not hand-written questions.**
 - The reference answers and supporting facts aren't ours, so nobody can say we wrote labels
@@ -231,13 +233,55 @@ of github.com/hotpotqa/hotpot, "The HotpotQA dataset is distribued under the CC 
 license", and the source of hotpotqa.github.io). The subset is an adaptation, so it is
 distributed under CC BY-SA 4.0 with attribution to Yang et al., EMNLP 2018, and a list of
 changes. Both are in `data/hotpotqa_demo/README.md`. ShareAlike applies to the data files,
-not to judge-check's code. **Open:** the repository's own code licence has not been chosen
-yet.
+not to judge-check's code, which is MIT (D-026).
+
+**Provenance: what was verified and what was not.** The official file
+(`curtis.ml.cmu.edu/.../hotpot_dev_distractor_v1.json`) could not be downloaded: the host
+refused connections from CI runners and from the development sandbox on 2026-10-07. We used
+`hotpotqa/hotpot_qa` on Hugging Face (config `distractor`, split `validation`), pinned to
+commit `1908d6afbbead072334abe2965f91bd2709910ab`, and converted it back to the original
+layout with a field-for-field, unit-tested converter.
+- *Verified:* the exact mirror file we used (its SHA-256 is in `MANIFEST.json`, together
+  with the commit), and that it has 7,405 rows, the dev-set size the HotpotQA authors
+  report. **That is a count match, not a content match.**
+- *Not verified:* that the mirror's content is identical to the official file. We never
+  had the official file, so we don't know its checksum. The checksum we pinned is the
+  *mirror's*. We also haven't verified that the conversion to parquet preserved text
+  exactly (whitespace, Unicode, sentence boundaries).
+- *How to close the gap:* when the official host is reachable, build from the official
+  JSON with the same seed and compare outputs byte for byte.
+
+The filter outcomes (1 unresolvable supporting fact, 73 answers not found in the gold
+sentences) look like an intact dataset. That is evidence against gross corruption, not
+proof of fidelity.
 
 **Selection filters.** Reject yes/no answers; supporting facts that don't resolve; gold
 not exactly two paragraphs; answer not present (as whole words, after normalisation) in the
-gold sentences; same title with different text. Then take the first 200 by
-`sha256(seed:id)`. Counts per filter are in `MANIFEST.json`.
+gold sentences; same title with different text. Counts per filter are in `MANIFEST.json`.
+
+**Sampling: a seeded simple random sample.** Of the 6,873 questions that pass the filters
+(the eligible population), 200 are drawn uniformly at random without replacement.
+1. Sort by id, so the source file's order can't matter.
+2. Permute with a seeded Fisher-Yates shuffle driven only by `random.Random(seed).random()`.
+   Python guarantees that sequence across versions; it doesn't guarantee `shuffle` or
+   `sample`.
+3. Take the first 200, skipping title conflicts (none occurred in this draw).
+
+The seed (20261007) is in `MANIFEST.json`.
+
+*Revision history:* the first version took the first 200 eligible questions ordered by
+`sha256(seed:id)`. A cryptographic hash of the id is unrelated to content, so that was
+also, in effect, a random permutation, and not biased by the sort key. It was replaced
+because an explicit seeded sample is easier to audit and to describe in a paper, and needs
+no argument about hash functions.
+
+*This draw's composition:* 180 bridge and 20 comparison questions, against a population
+split of 85.1% / 14.9% (expected ≈ 29.8 comparison). P(≤ 20) = 0.027 exactly
+(hypergeometric), about 0.05 two-sided. That's a chance under-representation of about two
+standard deviations. The seed was **not** changed after seeing it: re-drawing until the
+split looks nice makes the sample depend on the outcome. Report per-type results
+separately. The sample represents the *filtered* population, not HotpotQA dev as a whole:
+yes/no questions, mostly comparison type, are excluded.
 
 **Known label noise** (detail and citations in the data card):
 - Many questions have single-hop shortcuts (Min et al. 2019; Jiang & Bansal 2019; Trivedi
@@ -370,7 +414,7 @@ enforced at write time rather than assumed.
 
 **Decision.** No HNSW/IVFFlat index. Every dense query scans the run's vectors.
 
-**Why.** The demo corpus has 4,672 chunks. An exact scan over 384-d vectors takes
+**Why.** The demo corpus has 4,542 chunks. An exact scan over 384-d vectors takes
 milliseconds. An ANN index trades recall for speed, and in a tool that *measures* retrieval
 and judging, approximate retrieval would add an error source nobody asked for. Add a
 partial HNSW index per run (D-015) when corpora pass roughly 100k chunks.
@@ -466,7 +510,7 @@ IDF(t) = ln( (N − n(t) + 0.5) / (n(t) + 0.5) )
 
 **Proof of correctness.** `tests/test_bm25_sql.py` checks that the SQL scores equal
 `rank_bm25.BM25Okapi` scores (tolerance 1e-9) for every chunk and every one of 400 queries
-(4,672 chunks × 400 queries = 1,868,800 scores)
+(4,542 chunks × 400 queries = 1,816,800 scores)
 on the demo corpus (each question and each reference answer), plus edge cases:
 - negative IDF and the floor
 - duplicate query terms
@@ -506,9 +550,9 @@ chunk ranked low by one retriever still win through the other.
 `sentence_spans`, those are used (HotpotQA has them). Otherwise a rule-based splitter is
 used, which knows abbreviations and initials and has known limits.
 
-**Why.** The demo paragraphs average 4.2 sentences (median 4), so this gives 2.35 chunks
-per paragraph: 4,672 chunks of about 40 tokens each. Each question has 2 gold chunks (173
-questions), 3 (26) or 4 (1). More than two happens when a question has more than two
+**Why.** The demo paragraphs average 4.05 sentences (median 4), so this gives 2.28
+chunks per paragraph: 4,542 chunks averaging 39.4 tokens (median 38). Each question has 2
+gold chunks (165 questions), 3 (29) or 4 (6). More than two happens when a question has more than two
 supporting sentences and they fall into different windows.
 - Whole paragraphs would make "cites a chunk that doesn't support the claim" (stage 3,
   variant 9) nearly impossible: there would be too few candidate chunks per document.
@@ -535,3 +579,132 @@ record of what the system does.
 **Why.** The development sandbox can't reach Hugging Face or the PyTorch index, but CI can.
 Making CI the place where model-dependent behaviour is *required* means a missing model
 can't produce a green build.
+
+---
+
+## D-026: MIT for the code, CC BY-SA 4.0 for the demo data, and a CITATION.cff
+
+**Stage:** 1
+
+**Decision.** judge-check's code and docs are MIT (`LICENSE`). `data/hotpotqa_demo/` is
+CC BY-SA 4.0, because it is adapted from HotpotQA and ShareAlike requires it. `LICENSE`
+ends with an explicit carve-out, and the README has a table of what is under which licence.
+`CITATION.cff` (validated with `cffconvert`) makes GitHub show "Cite this repository", and
+lists HotpotQA under `references`.
+
+**Why MIT.** The audience is researchers who will run this on their own evaluations and
+may vendor parts of it. A permissive licence with no copyleft keeps that frictionless.
+
+**Why the boundary is safe.** The demo data is a separate work that ships alongside the
+code. Nothing in the code is derived from it. Using judge-check on your own data creates no
+ShareAlike obligations, and the code's MIT licence doesn't relicense the data.
+
+**Open.** The copyright holder is "the judge-check contributors", and the CITATION.cff
+author is the GitHub handle. Both should become the author's full name before a release.
+
+---
+
+## D-025: Chunk length and BM25's length normalisation (b)
+
+**Stage:** 1 · **Measured on the demo corpus (n = 200 questions), BM25 only**
+
+Our default chunks average 39 tokens, far smaller than typical RAG chunks (often 200–500
+tokens). This entry explains how that interacts with b, with measurements.
+
+### 1. b normalises *relative* length, not absolute length
+
+The length term is L = 1 − b + b·|D|/avgdl. A corpus of uniformly short chunks has
+|D|/avgdl ≈ 1 everywhere, and then b does nothing whatever the absolute size. What matters
+is the **spread** of |D|/avgdl, and our two chunkings have a similar spread:
+
+| chunking | N | avgdl | p10 / p90 of \|D\|/avgdl | CV | max |
+|---|---|---|---|---|---|
+| 2-sentence windows (default) | 4,542 | 39.4 | 0.43 / 1.60 | 0.47 | 167 |
+| whole paragraphs | 1,995 | 89.7 | 0.40 / 1.66 | 0.58 | 573 |
+
+### 2. Absolute length still matters, through tf
+
+In a 39-token chunk a query term rarely occurs twice, so most contributions are evaluated
+at f = 1, where the term is (k₁+1)/(1 + k₁·L). **b still acts at f = 1**. With k₁ = 1.5 and
+b = 0.75, a chunk at the 10th length percentile (L = 0.57) gets 2.5/1.86 ≈ 1.35× IDF per
+matched term, and one at the 90th (L = 1.45) gets 2.5/3.18 ≈ 0.79× IDF, about a 1.7× gap.
+What short chunks remove is mainly the *tf-saturation* side of BM25 (k₁ barely matters
+when f is almost always 1), not the length side.
+
+### 3. Measured: length bias exists in both, but matters more for paragraphs
+
+At b = 0 (no normalisation), BM25's top 5 are skewed towards long chunks in both
+chunkings: their mean length is **1.40× avgdl** for windows and **1.49×** for paragraphs.
+At b = 0.75 the ratios are 1.05× and 0.90×. Retrieval quality (gold = chunks overlapping
+the gold sentences; MRR of the first gold chunk; paired differences over the same 200
+questions):
+
+| chunking | MRR b=0 | b=0.25 | b=0.5 | b=0.75 | b=1.0 | Δ 0→0.75 | Δ 0.75→1.0 |
+|---|---|---|---|---|---|---|---|
+| windows | 0.679 | 0.711 | 0.737 | **0.742** | 0.719 | +0.063 (SE 0.019) | −0.023 (SE 0.011) |
+| paragraphs | 0.638 | 0.720 | 0.757 | 0.791 | **0.814** | +0.153 (SE 0.024) | +0.023 (SE 0.012) |
+
+(recall@5 for windows: 0.539 / 0.562 / 0.555 / 0.568 / 0.548; for paragraphs: 0.527 / 0.583
+/ 0.618 / 0.642 / 0.645.)
+
+- Normalising matters for both: z = 3.2 for windows, 6.3 for paragraphs.
+- The effect is less than half as big for short chunks.
+- The best b differs: windows peak near 0.75 and get *worse* at 1.0 (z ≈ −2.2), while
+  paragraphs keep improving up to full normalisation.
+- MRRs across the two chunkings are not comparable: the gold units differ.
+
+### 4. Why (a hypothesis consistent with the data, not tested separately)
+
+Robertson's distinction: a document can be long because of **verbosity** (same content,
+more words, so tf is inflated and should be normalised away, b → 1) or because of
+**scope** (more content, so genuinely more chances to be relevant, which shouldn't be
+fully normalised).
+- A Wikipedia intro paragraph is long mostly because of scope: more entities, dates and
+  relations. Multi-entity HotpotQA questions then match long paragraphs incidentally.
+  HotpotQA's distractor paragraphs were also *chosen* by bigram TF-IDF similarity to the
+  question (Yang et al. 2018), so they are lexically close by construction. Strong length
+  normalisation favours focused paragraphs, so b = 1 helps.
+- A two-sentence window's scope is capped by construction. Its length varies mostly with
+  sentence verbosity, and the answer is often *in* the long sentence. Full normalisation
+  then starts penalising the right chunk, so b = 1 hurts.
+
+### 5. Consequences
+
+- **b, avgdl, N and df all belong to a chunk set.** Tune b per chunking. Don't carry over
+  a b from document-level retrieval. BM25 scores are not comparable across chunk sets.
+- **We keep b = 0.75.** It's the best of the five values on the default chunking, but the
+  margin over 0.5 and 1.0 is about 2 paired SEs. It's also rank_bm25's default, which the
+  oracle test relies on. We don't tune b further on these 200 questions: tuning on the same
+  questions we report would overfit.
+- **Don't transfer these numbers** to RAG systems with 200–500-token chunks. There, b
+  sensitivity looks more like the paragraph row, or larger.
+- **Noise level.** At n = 200 a single MRR has SE ≈ 0.025, and a paired difference between
+  configurations ≈ 0.01–0.025. Differences below about 0.03 in the tables above shouldn't
+  be read as real. This is the same reasoning judge-check exists to apply to LLM judges.
+
+Reproduce: `judge-check eval-retrieval --corpus hotpotqa_demo --modes bm25 -k 5 --b 0.5`
+(add `--chunking '{"strategy":"document"}'` for paragraphs, after ingesting with it).
+
+---
+
+## D-027: ANALYZE right after every bulk load
+
+**Stage:** 1 · **Found by measurement**
+
+**Decision.** `build_chunk_set` runs `ANALYZE chunk`. `bm25.build_index` runs
+`ANALYZE bm25_doc, bm25_posting` *before* it aggregates them, and `ANALYZE bm25_term,
+bm25_stats` after. `embed_chunk_set` runs `ANALYZE chunk_embedding`.
+
+**Why.** Tables that have just been bulk-loaded have no planner statistics until
+autovacuum gets to them, and inside an open transaction it never does. The planner then
+assumes about 1 row. On the demo corpus (whole-paragraph chunking, ~120k postings), the
+df/IDF aggregation got this plan:
+
+```
+no stats:       GroupAggregate ← Incremental Sort ← Nested Loop ← Index Only Scan (rows=1)   30.79 s
+after ANALYZE:  HashAggregate ← Nested Loop(Aggregate(bm25_doc), Seq Scan bm25_posting)      0.11 s
+```
+
+That's 280× slower, for identical results. The test suite didn't catch it because the
+test database had statistics left over from earlier runs. `ANALYZE` (unlike `VACUUM`) can
+run inside a transaction, so ingestion stays atomic.

@@ -31,7 +31,7 @@ make up                                   # Postgres 17 + pgvector on localhost:
 make migrate                              # create tables
 cd backend
 uv run judge-check ingest ../data/hotpotqa_demo --name hotpotqa_demo
-#   loads 1,986 paragraphs + 200 questions, chunks them, embeds 4,672 chunks on CPU
+#   loads 1,995 paragraphs + 200 questions, chunks them, embeds 4,542 chunks on CPU
 #   (first run downloads BAAI/bge-small-en-v1.5, ~130 MB)
 
 uv run judge-check eval-retrieval --corpus hotpotqa_demo -k 5     # dense vs BM25 vs hybrid
