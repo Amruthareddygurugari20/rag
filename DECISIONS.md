@@ -1198,6 +1198,24 @@ information about anything.
 **Closing condition.** Criteria 1–3 are checked inside the run, and criterion 4 is that run
 being green on the branch tip. Until then, stage 2 stays open and stage 3 doesn't start.
 
+**Closed** by CI run #18, id 37689001532, commit `c1dfa99` (the branch tip when it ran),
+conclusion success. The acceptance script printed `STAGE 2 ACCEPTANCE: PASS (criteria 1-3;
+criterion 4 is this CI run being green)`. What it saw:
+- 21 Ollama rows, all recorded as
+  `qwen2.5:0.5b@a8b0c51577010a279d933d14c2a8ab4b268079d44c5c8830c0a93900f1827c67`.
+- 10 parsed and cited (criterion 1).
+- 11 stored parse failures with reason and raw output (criterion 3). The reasons: an empty
+  citation label `""` with `answerable: true`; the malformed labels `":C4"`, `":C5"`; full
+  passage text pasted in place of a label; and not JSON at all, which is the forced
+  `--max-tokens 8` run doing its job.
+
+Same caveat as above: 11/21 is a fact about a 0.5B model's JSON and citation compliance,
+not about grounded generation. Excluding the forced row, run #18 had 10/20 failures where
+run #15 had 6/20 on the same digest and seed. The cause isn't established (one candidate:
+CI installs whatever Ollama server version is current, and that isn't pinned), so it isn't
+read as a trend. Stage 3 work was committed locally while run #18 was in progress and pushed
+only after it passed.
+
 
 ---
 
