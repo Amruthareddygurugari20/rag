@@ -4,9 +4,9 @@
   "source_sha256": "c20b638ca82b21d04fe12e14ff417ad05153d4d215a65de54497fca4e972f7c6",
   "original_url": "http://curtis.ml.cmu.edu/datasets/hotpot/hotpot_dev_distractor_v1.json",
   "builder_input_sha256": "53236126686116162c280af05ff07f4cbf4021b71722f5d4e287290eac6967af",
-  "seed": "judge-check-hotpotqa-v1",
+  "sample_seed": 20261007,
   "builder": "backend/src/judge_check/datasets/hotpotqa.py",
-  "builder_sha256": "bd244793d459358666203b4faa1b06b77c379d28af10bbb9ef813c61663af2e0",
+  "builder_sha256": "707ef207792fe729ed039d53e34cad55d44c770f732a225c695f2e81b32b5167",
   "license": "CC BY-SA 4.0",
   "stats": {
     "source_questions": 7405,
@@ -15,12 +15,20 @@
       "supporting_fact_unresolvable": 1,
       "yes_no_answer": 458
     },
-    "eligible_before_conflicts": 6873,
+    "sampling": {
+      "method": "simple random sample without replacement over all questions passing the filters (seeded Fisher-Yates permutation of id-sorted eligible questions, first n taken; title conflicts skipped)",
+      "seed": 20261007
+    },
+    "eligible_population": 6873,
+    "eligible_by_type": {
+      "bridge": 5850,
+      "comparison": 1023
+    },
     "selected_questions": 200,
     "selected_by_type": {
-      "bridge": 177,
-      "comparison": 23
+      "bridge": 180,
+      "comparison": 20
     },
-    "documents": 1986
+    "documents": 1995
   }
 }
