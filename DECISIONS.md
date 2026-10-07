@@ -1198,3 +1198,145 @@ information about anything.
 **Closing condition.** Criteria 1–3 are checked inside the run, and criterion 4 is that run
 being green on the branch tip. Until then, stage 2 stays open and stage 3 doesn't start.
 
+
+---
+
+# Stage 3: the variant generator
+
+## D-035: How each variant type is constructed, and the guards that prove its label
+
+**Stage:** 3 · **Status:** binding · written before any variant code
+
+The one failure judge-check can't survive is a **wrong label in the evaluation set**. Every
+rule below exists to make that impossible, or, where it can't be made impossible, to send the
+variant to a human instead of labelling it.
+
+### Storage
+
+`answer_variant(question_id, chunk_set_id, variant_type, is_correct, label_source,
+how_generated, text, cited_chunk_ids, guard_report, status)`.
+- `label_source ∈ {construction, human}` (D-032), enforced by a CHECK.
+- `how_generated` names the constructor and its version, and holds its parameters (for
+  example the original and replacement value).
+- `guard_report` (JSONB) records every guard that ran and its result.
+- `status ∈ {labelled, discarded, needs_human_review}`. Only `labelled` rows can enter an
+  evaluation set, and `discarded` rows are kept with their reason so discard rates can be
+  reported.
+- LLM-assisted variants reference an `llm_call` row carrying D-030's attribution columns.
+
+### The base text (correct by construction)
+
+For each question: the reference answer, then the gold supporting sentences verbatim, citing
+the gold chunks of the chunk set. For example: *"Bergen. Ann Lee was born in Bergen. Alpha
+Corp was founded by Ann Lee in 1912. [C2][C1]"*. It's extractive and faithful, and correct
+exactly to the extent HotpotQA's labels are (data card, known noise; that residual is what
+stage 5 measures).
+
+### Constructions, provable types first
+
+| # | type | label | construction | how |
+|---|---|---|---|---|
+| 1 | correct | accept | base text | deterministic |
+| 2 | verbose_correct | accept | base + further sentences from the *gold paragraphs* (true, cited), to ≥ 2.5× the base length | deterministic |
+| 3 | terse_correct | accept | the reference answer alone, citing the gold chunk that contains it | deterministic |
+| 5 | right_topic_wrong_detail | reject | base with the answer value replaced everywhere (guarded mutation) | deterministic |
+| 7 | partially_correct | reject | (a) *partial-missing*: only the gold sentence(s) that don't contain the answer; or (b) *partial-wrong*: the answer kept, a value in the other gold sentence mutated (guarded) | deterministic |
+| 9 | right_answer_wrong_citation | reject | base text, citations replaced by chunks of distractor paragraphs | deterministic |
+| 6 | hedged_nonanswer | reject | LLM writes a hedge about the question's topic | LLM, guarded |
+| 4 | paraphrased_correct | accept | LLM rephrases the base text | LLM, guarded, may go to human review |
+| 8 | unsupported_but_plausible | reject | LLM writes a confident answer from outside the passages | LLM, guarded, may go to human review |
+
+Six of the nine types need no model at all. Those are built and tested first. The LLM-assisted
+types come last.
+
+### Answer typing: conservative, or nothing
+
+A mutation must replace a value with another value **of the same type**. The type comes from
+strict parsers. An answer that matches none of them is **untyped**: no mutation is
+attempted, and the variant is discarded with the reason `answer_type_unparseable`.
+- **year:** exactly 4 digits, 1000–2099.
+- **date:** "Month D, YYYY" or "D Month YYYY".
+- **number:** a numeral with an optional single unit word.
+- **entity:** a short capitalised span, up to 6 tokens, lowercase allowed only for particles.
+
+On the demo subset a first look found 102 entity-like answers, 16 years and about 14
+numbers/dates. Around 68 answers ("early 1970s", "end of the 17th century", whole clauses)
+fit no type and won't get a type-5 variant. That's reported, not hidden. A loose parser
+labelled "2016 United States elections" a number; the strict one must not.
+
+### Replacement values
+
+- year: shift by a seeded non-zero offset of 1 to 15 years.
+- number: scale by a seeded factor from a fixed set, keeping the format (commas, decimals,
+  unit).
+- date: shift day and/or month, keeping the format.
+- entity: the title of one of the question's own **distractor paragraphs**. HotpotQA chose
+  those by TF-IDF similarity to the question, so the swap stays *on topic*, which is exactly
+  what type 5 is meant to test.
+
+All randomness is seeded from `(seed, question id, type)`, so a rebuild is identical.
+
+### Guards for every mutation (types 5 and 7b). All must pass, or the variant is discarded
+
+1. **Different:** normalised replacement ≠ normalised original.
+2. **Same type:** the replacement, re-parsed by the *same strict parser*, has the original's
+   type.
+3. **Absent from the gold evidence:** the replacement appears **nowhere** in the gold chunks
+   (normalised, whole words). **This is what establishes wrongness.** A replacement that
+   happens to be another true value supported by the evidence would make a "wrong" answer
+   correct.
+4. **Original fully removed:** the original value no longer appears anywhere in the mutated
+   text. If the answer occurred twice and only one occurrence changed, the text would still
+   assert the right answer.
+5. **Nothing else changed:** the text outside the replaced spans is byte-identical to the
+   source.
+
+A failed guard **raises**; the variant is stored as `discarded` with the failing guard and
+values, never kept. Discard rates per type and per reason are reported next to every result,
+the same selection-bias accounting as D-032 B.
+
+### Guards for the LLM-assisted types (built after the deterministic ones)
+
+- **4 paraphrased_correct** keeps the correct label *by construction* only if:
+  (a) the normalised reference answer is still present;
+  (b) the paraphrase introduces **no new values**: every number, date and capitalised span
+  in it already appears in the base text, so it can't have added a fact;
+  (c) its word overlap with the gold sentences is below a set threshold, otherwise it's not
+  a paraphrase.
+
+  If (a) or (b) can't be confirmed (for example the answer itself was rephrased, "the US"
+  for "United States"), the variant goes to `needs_human_review` and gets its label from a
+  human (`label_source = human`), never from the rephrase. (c) failing is a discard: the
+  rephrase didn't do its job.
+- **6 hedged_nonanswer:** the reference answer must be **absent**, and so must every value
+  from the gold sentences. Otherwise it's a discard (it isn't a non-answer).
+- **8 unsupported_but_plausible:** the claimed answer must be absent from every chunk shown
+  and from the gold paragraphs. If whether it's supported can't be established mechanically,
+  the variant goes to human review.
+
+### Balance
+
+Counts are reported per type, before and after discards. When an evaluation set is
+assembled, each type within the **accept group** (1–4) and within the **reject group**
+(5–9) is down-sampled, with a seed, to the group's smallest type count. Headline FAR and FRR
+are therefore type-balanced, and can't be dominated by whichever type is easiest to generate
+in bulk. Unbalanced per-type rates are still reported separately.
+
+### Tests use independent oracles
+
+Each guard is tested against planted cases that must fail it. Each mutator is tested with
+Hypothesis-generated sentences containing known values, and the result is checked by a
+*separately written* checker: span diff, re-parse, token-level absence. Following stage 2's
+habit (D-034), no expected value is typed in from memory where it can be derived.
+
+### Change to D-033: `contains_answer` is allowed in `variants/guards.py`
+
+The heuristic wall (D-033) stays: heuristics may never *award* a label. The guards use the
+same normalised whole-word containment for a different job: as **necessary conditions** that
+can only *withhold* a label:
+- absence of the replacement from the gold evidence establishes wrongness for a mutation;
+- presence of the answer is necessary, but not sufficient, for a paraphrase to stay correct.
+
+No guard result can make a variant correct on its own. `tests/test_heuristic_boundary.py` is
+widened to allow exactly one more file, `judge_check/variants/guards.py`, and a planted
+violation elsewhere under `variants/` must still fail the scan.

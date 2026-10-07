@@ -11,7 +11,13 @@ from judge_check.db import Base
 
 SRC = Path(__file__).resolve().parents[1] / "src" / "judge_check"
 DIAGNOSTICS_IMPORTERS = {SRC / "cli.py"}  # human-readable summaries only
-CONTAINS_ANSWER_USERS = {SRC / "datasets" / "hotpotqa.py", SRC / "diagnostics.py"}
+# guards.py: widened deliberately in D-035. Guards use containment only to WITHHOLD a label
+# (necessary conditions); they can never award one.
+CONTAINS_ANSWER_USERS = {
+    SRC / "datasets" / "hotpotqa.py",
+    SRC / "diagnostics.py",
+    SRC / "variants" / "guards.py",
+}
 
 
 def real_sources() -> dict[Path, str]:
@@ -73,6 +79,10 @@ def test_scans_catch_planted_violations() -> None:
             "from judge_check.datasets.hotpotqa import contains_answer\n"
             "label = contains_answer(ref, ans)\n"
         ),
+        # The widening is one file, not the package: another variants module must still fail.
+        SRC / "variants" / "constructors.py": (
+            "from judge_check.datasets.hotpotqa import contains_answer\n"
+        ),
     }
     assert offenders(planted, imports_diagnostics, DIAGNOSTICS_IMPORTERS) == [
         "metrics.py:1",
@@ -81,6 +91,7 @@ def test_scans_catch_planted_violations() -> None:
     assert offenders(planted, uses_contains_answer, CONTAINS_ANSWER_USERS) == [
         "scoring.py:1",
         "scoring.py:2",
+        "constructors.py:1",
     ]
 
 

@@ -107,7 +107,33 @@ deterministically by `backend/src/judge_check/datasets/hotpotqa.py`. The data ca
 attribution, the changes made, the selection filters and known label noise:
 [data/hotpotqa_demo/README.md](data/hotpotqa_demo/README.md).
 
-## Licence and citation
+## How this project checks itself
+
+judge-check exists because a check that *looks* like it works (an LLM judge) can quietly
+accept wrong answers. The same failure mode turned up repeatedly inside this codebase while
+building it: **a check that matches nothing manufactures confidence, which is worse than
+having no check.** Each of these was caught and fixed, and the fix is now a test:
+
+| # | the check | why it was vacuous | the fix |
+|---|---|---|---|
+| 1 | a property test ending in `... or True` | it could never fail | removed; the real invariant asserted (`tests/test_chunking.py`) |
+| 2 | a source scan for forbidden imports, "tested" by parsing an import | it proved Python can parse, not that the scan detects anything | scans are run on **planted violations** and must report the exact file and line (`tests/test_heuristic_boundary.py`) |
+| 3 | a stage-2 acceptance check that a parse failure had occurred on real output | it passed only if the model happened to misbehave on that run | CI **forces** a real-output failure (8-token cap), and the check fails otherwise (`scripts/check_stage2_acceptance.py`) |
+| 4 | statistical tests with expected values typed from memory | two were simply wrong; the test encoded my arithmetic, not the math | expected values are **derived independently** (the Wilson bound's quadratic form) and cross-checked against SciPy |
+
+Related habits, recorded in [DECISIONS.md](DECISIONS.md):
+- **Claims point at evidence that can be re-run.** A result cites the CI run and commit it
+  came from, or a committed script that reproduces it (D-025, D-028). "The scripts used"
+  wasn't enough until the script was in the repo.
+- **Predictions are committed before results exist** (D-028), and corrected in the open,
+  even when the correction makes the claim stronger.
+- **Eyeball claims get paired standard errors before they're written down.** "b barely
+  matters" became z = 3.2 once measured (D-025).
+- **Rules that protect the measurement are enforced by tests that read the code:** one LLM
+  call path (D-031), heuristics walled off from scoring (D-033), attribution on every row
+  (D-030).
+
+
 
 Two licences, with a hard boundary:
 
