@@ -385,7 +385,7 @@ CI prints the numbers. The BGE v1.5 model card itself says the instruction matte
 v1.5 than for v1.0, so the size of the effect is an empirical question we answer on our own
 data.
 
-### Result: a measured null (CI run 9, demo corpus, n = 200, paired)
+### Result: a measured null (CI run #9, id 37684560833, commit `8e01bf5`; n = 200, paired)
 
 | | with prefix | without | paired Δ (with − without) |
 |---|---|---|---|
@@ -408,6 +408,13 @@ need to be used", at commit `fd1a2bdf69488ffebe0327999d4400d8c8058a0b`:
 > For a retrieval task that uses short queries to find long related documents,
 > it is recommended to add instructions for these short queries.
 > **The best method to decide whether to add instructions for queries is choosing the setting that achieves better performance on your task.**
+
+**The same text is in the Hugging Face model card**, `BAAI/bge-small-en-v1.5` at revision
+`5c38ec7c405ec4b44b94cc5a9bb96e735b38267a`, `README.md` lines 2733–2746 (FAQ item 3,
+captured by the CI step "BGE model card, query-instruction FAQ"). It's word for word the
+same, followed by one more line:
+
+> In all cases, the documents/passages do not need to add the instruction.
 
 **Reading.** The null agrees with the vendor's own hedge. HotpotQA questions are long,
 well-formed sentences, not the "short queries" the instruction is recommended for. We keep
@@ -577,6 +584,11 @@ k = 60 comes from Cormack, Clarke & Büttcher (SIGIR 2009). It flattens the head
 list so that one retriever's top hit can't dominate. 100 candidates per retriever lets a
 chunk ranked low by one retriever still win through the other.
 
+**Addendum (stage 1 close):** on the demo corpus equal-weight RRF is worse than dense
+(MRR −0.051, z −2.5), and weighted fusion recovers to "no detectable difference from dense"
+without beating it. The default is unresolved, scoped to HotpotQA's adversarial lexical
+distractors. See D-028.
+
 ---
 
 ## D-023: Default chunking: two-sentence windows, no overlap
@@ -643,7 +655,12 @@ author is the GitHub handle. Both should become the author's full name before a 
 
 ## D-025: Chunk length and BM25's length normalisation (b)
 
-**Stage:** 1 · **Measured on the demo corpus (n = 200 questions), BM25 only**
+**Stage:** 1 · **Measured on the demo corpus (n = 200 questions), BM25 only.** Run in the
+development environment, not CI (BM25 needs no model), on the demo subset as committed in
+`bae2229` (sample seed 20261007). Reproduce every table below with
+`uv run python backend/scripts/bm25_b_sweep.py`; it was re-run after being committed and
+matches to the last digit. Equal-weight
+numbers for the default chunking also appear in CI run #9 (MRR@5 0.728).
 
 Our default chunks average 39 tokens, far smaller than typical RAG chunks (often 200–500
 tokens). This entry explains how that interacts with b, with measurements.
@@ -755,7 +772,7 @@ run inside a transaction, so ingestion stays atomic.
 ### The finding that prompted this
 
 Equal-weight RRF (D-022) is *worse* than dense alone on the demo corpus, measured as paired
-differences over the same 200 questions (CI run 9):
+differences over the same 200 questions (CI run #9, id 37684560833, commit `8e01bf5`):
 
 | vs dense | Δ recall@5 | Δ complete@5 | Δ MRR@5 |
 |---|---|---|---|
@@ -810,7 +827,56 @@ this paragraph is the timestamp.
 
 ### Result
 
-*To be filled in from the CI output, without editing anything above this line.*
+*Appended after the prediction. Nothing above this heading was edited.*
+
+**Which runs, built from which commits** (GitHub Actions workflow `ci`, this repository):
+
+| | commit | started → finished (UTC) | what it contains |
+|---|---|---|---|
+| **prediction** | `db35394` (`db353948bfd0…`), committed **2026-10-07T20:54:08Z** | n/a | the pre-registered prediction above |
+| CI run #10 (id 37685197102) | `a28505b`, committed 20:51:28 | 20:51:32 → **20:57:38** | sweep curve + one fixed 2-fold split |
+| CI run #11 (id 37685521715) | `db35394` | 20:54:12 → … | same code as #10; **not used** here |
+| CI run #12 (id 37685745810) | `190fe9c`, committed 20:55:58 | 20:56:02 → **21:01:37** | #10's output + 200 repeated random partitions |
+
+To verify the ordering: `git log -1 --format=%cI db35394` against the job times on each
+run's GitHub page. **Correction to the prediction's own wording:** it says run 10 "had
+executed". The job record shows run 10 was still running at 20:54:08 and finished at
+20:57:38. So the prediction was committed before the result existed, which is stronger
+than "before it was read". The repeated-partition code (`190fe9c`) was written after the
+prediction and is covered by it.
+
+**Fixed 2-fold split** (identical in runs #10 and #12). Cross-fitted, paired over the same
+200 questions:
+
+| method | α chosen (fold A / B) | held-out MRR@5 | Δ vs dense (SE, z) | Δ complete@5 (SE) |
+|---|---|---|---|---|
+| weighted RRF | 1.0 / 0.9 | 0.842 | −0.003 (0.006, −0.4) | +0.010 (0.014) |
+| linear (min-max) | 0.8 / 0.7 | 0.853 | +0.008 (0.012, +0.7) | +0.015 (0.023) |
+
+**200 random 2-fold partitions** (run #12, seed 20261007). The spread is *selection
+stability*, not a population CI; sampling error is the paired SE above.
+
+| method | Δ MRR vs dense: median [2.5%, 97.5%] | partitions > dense | α chosen (400 folds) |
+|---|---|---|---|
+| weighted RRF | −0.001 [−0.027, +0.005] | 36% | 1.0: 107 · 0.9: 259 · 0.8: 28 · 0.7: 5 · 0.6: 1 |
+| linear | +0.007 [−0.020, +0.014] | 89% | 1.0: 3 · 0.9: 127 · 0.8: 145 · 0.7: 110 · 0.6: 5 · 0.5: 10 |
+
+**Against the prediction:**
+1. *α near 1, ≥ 0.8 in most partitions.* **Held for weighted RRF** (394 of 400 folds ≥ 0.8).
+   **Held weakly for linear**: 275 of 400 folds (69%) were ≥ 0.8, but 0.7 was chosen in
+   110 folds (28%). Linear fusion leans less towards dense than predicted.
+2. *No held-out gain over dense.* **Held.** Weighted RRF: −0.003 (z −0.4), median −0.001.
+   Linear: +0.008 (z +0.7), median +0.007. Neither is distinguishable from zero.
+3. *BM25 adds nothing.* **Mostly held, with one nuance.** Linear fusion's estimate leans
+   positive in 89% of partitions, so its selection is *stable* about a small effect. Its
+   size (+0.007 MRR) is far below what n = 200 can detect: with a paired SD of ≈ 0.17, 80%
+   power at α = 0.05 for a 0.007 difference needs ≈ 4,600 questions. "No detectable gain" is
+   the claim. "No gain" would be overclaiming.
+
+The pre-registered prediction mostly held. The "more interesting result" (weighted fusion
+beating dense outside the noise) **did not occur**. The one surprise is linear fusion's
+lower preferred α and its consistent but tiny positive lean. That's worth re-testing on a
+corpus with natural negatives, where BM25 isn't fighting lexical distractors.
 
 ### Decision
 
@@ -822,3 +888,91 @@ sampled negatives; one adversarial corpus can't settle it either way. Until then
   about hybrid retrieval. It's a single config switch.
 - No further fusion work in stage 1. The retrieval layer only has to produce answers worth
   judging.
+
+---
+
+# Stage 2: grounded generation (in progress)
+
+## D-029: One provider interface, standard-library HTTP, no new dependencies
+
+**Stage:** 2
+
+**Decision.** `LLMClient.complete(messages, temperature, max_tokens, seed, json_schema) ->
+Completion`, implemented by `OllamaClient` (default, local, cost 0.0) and
+`AzureOpenAIClient` (optional). Both talk HTTP through an injectable `Transport` function,
+which defaults to `urllib`. Azure prices are passed in, never hard-coded: without them,
+`cost_usd` is `None`, not a guess. Structured output uses each provider's JSON-schema mode
+(Ollama `format`, Azure `response_format`).
+
+**Why.** Stage 4 compares judges, and that comparison is only valid if they differ in the
+model and nothing else, so there's one interface. No SDKs, because the lock file can only be
+regenerated in CI here (D-016) and two thin REST calls don't justify two dependency trees.
+The injectable transport lets every request shape be tested without a network.
+
+---
+
+## D-030: Every LLM output row records the exact model version and decoding parameters
+
+**Stage:** 2 · **Status:** binding (applies to stage 4 judgements)
+
+**Decision.** Any table that stores an LLM output uses `LLMCallColumns`:
+- `provider`
+- `model_requested` (the tag or deployment we asked for)
+- `model_reported` (what the provider says answered)
+- `model_version` (the exact weights)
+- `temperature`, `seed`, `max_tokens`
+- `prompt_sha256`
+- the rendered `messages`, the raw response, latency, tokens and cost.
+
+The required ones are `NOT NULL`, and the identity fields also have a `CHECK <> ''`.
+They're stored **on the row**, not on a judge/config table, because a config can change
+while old rows stay.
+
+- **Ollama:** `model_version = tag@digest`. The digest comes from `/api/tags` on every call,
+  so a re-pull between calls shows up. No digest means the call is refused.
+- **Azure:** `model_version` is the dated model from the response, plus
+  `+system_fingerprint` when present. No `model` in the response means it is refused.
+- The seed is always sent and recorded (default 0). "No seed" isn't a recordable state.
+
+**Enforcement, at three layers.**
+1. `Completion` can't be constructed without the identity fields.
+2. The database rejects NULL or empty values.
+3. `tests/test_llm_call_columns.py` checks this for **every** table that uses the mixin.
+   A new LLM-output table, such as stage 4's `judgement`, fails
+   `test_every_llm_output_table_is_covered` until it has a row builder in that test.
+
+`judgement` doesn't exist yet (it references stage 3's variants). Today the guarantee is
+proven on `generated_answer`.
+
+**Why.** A judge's error rate is a property of a specific model version. Ollama tags move
+(`ollama pull` replaces the weights behind a tag) and Azure upgrades deployments in place. A
+judgement row that doesn't say which weights produced it can't be attributed, and every
+stage 6 number built on such rows would have to be re-run.
+
+---
+
+## D-031: Prompts are versioned data, and one function makes every LLM call
+
+**Stage:** 2 · **Status:** binding (applies to stage 4 judges)
+
+**Decision.**
+- Prompts are TOML files `prompts/<kind>/<name>.v<N>.toml`. `PROMPTS.lock.json` pins each
+  released file's SHA-256, and a test fails if a released prompt is edited in place: a
+  change is a new version.
+- Rendering is strict: a missing or unexpected variable is an error.
+- Each prompt version is copied into `prompt_template` under its hash, and every call row
+  references that hash.
+- `llm/runner.py::run_prompt` is the only place `LLMClient.complete` is called.
+  `tests/test_llm_runner.py` parses the source tree and fails on any other call site.
+- `llm/records.py::call_columns` is the only way a call becomes row columns.
+
+**Why.** For the judge comparison, the code path (prompt rendering, decoding parameters,
+what gets recorded) must be identical for every judge, so differences can only come from
+the model (or, in the prompt-variation arm, only from the prompt version). Enforcing it with
+tests turns "we used the same path" from a promise into something CI checks.
+
+**Caught on the way.** The strict renderer found that the JSON example in the first draft of
+`grounded_answer.v1` (`{"answer": ...}`) was being parsed as a placeholder. `.format()`
+would have crashed on the first real call. Braces are now escaped. The draft was locked
+locally for two minutes and never pushed or used, so v1 was corrected in place. Immutability
+starts at release.
